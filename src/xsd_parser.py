@@ -291,15 +291,48 @@ class XSDParser:
             # ou qui sont l'élément racine
             
             # Étape 1 : identifier quels types sont des "listes" (maxOccurs="unbounded")
-            list_types = set()  # ensemble des types qui apparaissent en liste
-            
+            # Étape 1 : identifier quels types sont des "listes" (maxOccurs="unbounded")
+            list_types = set()
+            # Types qui doivent TOUJOURS devenir des tables séparées
+            # même si maxOccurs="1" — parce qu'ils contiennent des données
+            # métier importantes qui varient d'une facture à l'autre
+            forced_tables = {
+                "MoaDetailsType",    # montants (HT, TTC, TVA...)
+                "TaxDetailsType",    # taxes (TVA, droit de timbre...)
+                "AlcDetailsType",    # remises/charges
+                "PytSegType",        # conditions de paiement
+                "CtaGrpType",        # contacts
+                "RefGrpType",        # références
+                "AdressesType",      # adresses
+                "LinType",           # lignes de facture
+            }
+
+            # On les ajoute directement aux types "liste"
+            list_types.update(forced_tables)
+
             for elem in self.root.findall(f".//{XS}element"):
                 max_occurs = elem.get("maxOccurs", "1")
-                type_ref = elem.get("type", "")
-                if max_occurs == "unbounded" and type_ref in self.complex_types:
-                    list_types.add(type_ref)
-            
-            print(f"  → Types qui sont des listes (→ tables séparées) : {list_types}")
+                if max_occurs == "unbounded":
+                    # Façon 1 : type référencé directement
+                    type_ref = elem.get("type", "")
+                    if type_ref in self.complex_types:
+                        list_types.add(type_ref)
+
+                    # Façon 2 : type référencé via xs:alternative
+                    for alt in elem.findall(f"{XS}alternative"):
+                        alt_type = alt.get("type", "")
+                        if alt_type in self.complex_types:
+                            list_types.add(alt_type)
+
+                    # Façon 3 : type défini anonymement à l'intérieur
+                    # (xs:complexType sans name, enfant direct de l'élément)
+                    anon = elem.find(f"{XS}complexType")
+                    if anon is not None:
+                        # On crée un nom synthétique pour ce type anonyme
+                        elem_name = elem.get("name", "")
+                        if elem_name:
+                            synth_name = f"{elem_name}AnonType"
+                            list_types.add(synth_name)
             
             # Étape 2 : ne créer une table que pour les types "liste"
             # + l'élément racine (TEIF dans notre cas)
@@ -338,6 +371,9 @@ class XSDParser:
                         })
 
                     self.tables.append(table)
+
+
+                
 
 
     
