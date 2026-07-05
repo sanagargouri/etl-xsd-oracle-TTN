@@ -334,7 +334,63 @@ class XSDParser:
                 parent_map[type_name] = found_parent
 
         return parent_map
+    
+    def _truncate_name(self, name, max_length=30, used_names=None):
+        """
+        Raccourcit un nom de colonne intelligemment :
+        - Garde le suffixe (nom du champ final) intact
+        - Raccourcit le préfixe si nécessaire
+        
+        Exemple :
+            pytfii_institutionidentification_branchidentifier
+            → pytfii_branchidentifier (préfixe raccourci)
+        """
+        if len(name) <= max_length:
+            truncated = name
+        else:
+            # Découpe le nom en segments séparés par "_"
+            parts = name.split("_")
+            
+            if len(parts) >= 2:
+                # Garde toujours le dernier segment (nom du champ)
+                # et essaie d'ajouter des segments depuis la fin
+                result_parts = [parts[-1]]  # commence par le dernier
+                current_length = len(parts[-1])
+                
+                # Ajoute le premier segment (préfixe principal)
+                # s'il y a de la place
+                prefix = parts[0]
+                if current_length + len(prefix) + 1 <= max_length:
+                    result_parts.insert(0, prefix)
+                    current_length += len(prefix) + 1
+                
+                # Essaie d'ajouter des segments intermédiaires depuis la fin
+                for part in reversed(parts[1:-1]):
+                    if current_length + len(part) + 1 <= max_length:
+                        result_parts.insert(-1, part)
+                        current_length += len(part) + 1
+                    else:
+                        break
+                
+                truncated = "_".join(result_parts)
+            else:
+                # Pas de "_" → tronque simplement
+                truncated = name[:max_length]
 
+        if used_names is None:
+            return truncated
+
+        # Gestion des doublons
+        original = truncated
+        counter = 1
+        while truncated in used_names:
+            suffix = f"_{counter}"
+            truncated = original[:max_length - len(suffix)] + suffix
+            counter += 1
+
+        used_names.add(truncated)
+        return truncated
+    
     def _build_tables(self):
         list_types = set()
         forced_tables = {
@@ -387,31 +443,39 @@ class XSDParser:
                     "columns": [],
                     "children": type_info["children"],
                 }
+
+                # Colonne PK
                 table["columns"].append({
                     "name": f"id_{table_name.lower()}",
                     "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
                     "nullable": False,
                 })
-                # Colonne FK vers la table parente (si elle existe)
+
+                # Colonne FK (seulement si ce type a un parent)
                 if type_name in parent_map:
                     parent_type = parent_map[type_name]
                     parent_table = parent_type.upper().replace("TYPE", "").strip("_")
+                    fk_name = self._truncate_name(f"id_{parent_table.lower()}_fk")
                     table["columns"].append({
-                        "name": f"id_{parent_table.lower()}_fk",
+                        "name": fk_name,
                         "sql_type": f"NUMBER REFERENCES {parent_table}(id_{parent_table.lower()})",
                         "nullable": False,
                     })
                     table["parent_table"] = parent_table
+
+                # Colonnes issues des champs (avec troncature)
                 flat_fields = self._flatten_type(type_name)
                 for field in flat_fields:
                     nullable_str = "" if field["nullable"] else " NOT NULL"
+                    col_name = self._truncate_name(field["name"].lower())
                     table["columns"].append({
-                        "name": field["name"].lower(),
+                        "name": col_name,
                         "sql_type": field["oracle_type"] or "VARCHAR2(255)",
                         "nullable": field["nullable"],
                         "constraint": nullable_str,
                     })
-                self.tables.append(table)  # ← ligne manquante ajoutée
+
+                self.tables.append(table)
 
 
 # ---------------------------------------------------------------
