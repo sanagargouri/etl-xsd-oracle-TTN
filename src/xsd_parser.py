@@ -262,6 +262,78 @@ class XSDParser:
                     prefixed_field["name"] = f"{child['name'].lower()}_{cf['name']}"
                     flat_fields.append(prefixed_field)
         return flat_fields
+    
+    def _find_parent_relationships(self, list_types, table_names):
+        """
+        Pour chaque type qui devient une table, trouve son ancêtre
+        le plus proche qui est AUSSI une table.
+        Si aucun ancêtre-table n'est trouvé, pointe vers TEIF (table racine).
+        """
+        # Étape 1 : construire la relation parent direct pour TOUS les types
+        direct_parent = {}
+
+        # Depuis les types complexes nommés
+        for complex_type in self.root.findall(f".//{XS}complexType[@name]"):
+            parent_name = complex_type.get("name")
+            for elem in complex_type.findall(f".//{XS}element"):
+                type_ref = elem.get("type", "")
+                if type_ref and type_ref not in direct_parent:
+                    direct_parent[type_ref] = parent_name
+                for alt in elem.findall(f"{XS}alternative"):
+                    alt_type = alt.get("type", "")
+                    if alt_type and alt_type not in direct_parent:
+                        direct_parent[alt_type] = parent_name
+
+        # Depuis l'élément racine (TEIF) — ses enfants directs pointent vers TEIF
+        root_elem = self.root.find(f"{XS}element")
+        if root_elem is not None:
+            root_name = root_elem.get("name", "ROOT")
+            anon_type = root_elem.find(f"{XS}complexType")
+            if anon_type is not None:
+                sequence = anon_type.find(f"{XS}sequence")
+                if sequence is not None:
+                    for child_elem in sequence.findall(f"{XS}element"):
+                        child_type = child_elem.get("type", "")
+                        if child_type and child_type not in direct_parent:
+                            direct_parent[child_type] = root_name
+
+        # Étape 2 : pour chaque type-table, remonter jusqu'au
+        # premier ancêtre qui est aussi une table
+        parent_map = {}
+
+        for type_name in list_types:
+            current = type_name
+            visited = set()
+            found_parent = None
+
+            while current in direct_parent:
+                parent = direct_parent[current]
+                if parent in visited:
+                    break
+                visited.add(parent)
+
+                parent_table_name = parent.upper().replace("TYPE", "").strip("_")
+
+                # Est-ce que ce parent est lui-même une table ?
+                if parent in list_types or parent_table_name in table_names:
+                    found_parent = parent
+                    break
+
+                # Est-ce que c'est la racine TEIF ?
+                if parent == root_name:
+                    found_parent = root_name
+                    break
+
+                current = parent
+
+            # Si on n'a pas trouvé de parent-table, on pointe vers TEIF par défaut
+            if found_parent is None and type_name != root_name:
+                found_parent = root_name
+
+            if found_parent:
+                parent_map[type_name] = found_parent
+
+        return parent_map
 
     def _build_tables(self):
         list_types = set()
@@ -276,6 +348,7 @@ class XSDParser:
             "LinType",
         }
         list_types.update(forced_tables)
+        
 
         for elem in self.root.findall(f".//{XS}element"):
             max_occurs = elem.get("maxOccurs", "1")
@@ -289,6 +362,18 @@ class XSDParser:
                         list_types.add(alt_type)
 
         print(f"  → Types qui sont des listes : {list_types}")
+
+        # Noms des tables qui seront créées
+        table_names = set()
+        for tn, _ in self.complex_types.items():
+            tname = tn.upper().replace("TYPE", "").strip("_")
+            if tn in list_types:
+                table_names.add(tname)
+        table_names.add("TEIF")  # ajoute la table racine
+
+        # Construire le dictionnaire de parenté
+        parent_map = self._find_parent_relationships(list_types, table_names)
+        print(f"  → Relations parent-enfant : {parent_map}")
 
         root_element = self.root.find(f"{XS}element")
         root_type_name = root_element.get("name", "ROOT").upper() if root_element is not None else "ROOT"
@@ -307,6 +392,16 @@ class XSDParser:
                     "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
                     "nullable": False,
                 })
+                # Colonne FK vers la table parente (si elle existe)
+                if type_name in parent_map:
+                    parent_type = parent_map[type_name]
+                    parent_table = parent_type.upper().replace("TYPE", "").strip("_")
+                    table["columns"].append({
+                        "name": f"id_{parent_table.lower()}_fk",
+                        "sql_type": f"NUMBER REFERENCES {parent_table}(id_{parent_table.lower()})",
+                        "nullable": False,
+                    })
+                    table["parent_table"] = parent_table
                 flat_fields = self._flatten_type(type_name)
                 for field in flat_fields:
                     nullable_str = "" if field["nullable"] else " NOT NULL"
