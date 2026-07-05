@@ -1,150 +1,87 @@
 # xsd_parser.py
 import xml.etree.ElementTree as ET
 
-# Namespace XSD — toutes les balises xs:* ont ce préfixe en Python
 XS = "{http://www.w3.org/2001/XMLSchema}"
 
-# Correspondance entre les contraintes XSD et les types Oracle SQL
-# C'est le "dictionnaire de traduction" XSD → SQL
 TYPE_MAPPING = {
-    "string":  ("VARCHAR2", 255),   # par défaut si pas de maxLength
+    "string":  ("VARCHAR2", 255),
     "integer": ("NUMBER", None),
     "decimal": ("NUMBER", None),
-    "boolean": ("VARCHAR2", 5),     # Oracle n'a pas de type booléen natif
+    "boolean": ("VARCHAR2", 5),
     "date":    ("DATE", None),
     "dateTime":("TIMESTAMP", None),
 }
 
 class XSDParser:
     def __init__(self, xsd_path):
-        """
-        Charge et parse le fichier XSD.
-        xsd_path : chemin vers le fichier .xsd
-        """
         self.xsd_path = xsd_path
         self.tree = ET.parse(xsd_path)
         self.root = self.tree.getroot()
-
-        # Dictionnaire des types simples définis dans le XSD
-        # ex: {"DataStringType_35": "VARCHAR2(35)", "monetaryAmountType": "NUMBER(15,5)"}
         self.simple_types = {}
-
-        # Dictionnaire des types complexes définis dans le XSD
-        # ex: {"LinType": {"fields": [...], "children": [...]}}
         self.complex_types = {}
-
-        # Résultat final : liste de tables à créer
-        # ex: [{"table_name": "LIN", "columns": [...], "parent": "FACTURES"}]
         self.tables = []
 
     def parse(self):
-        
         print(f"Analyse du XSD : {self.xsd_path}")
         self._parse_simple_types()
         print(f"  → {len(self.simple_types)} types simples trouvés")
         self._parse_complex_types()
         print(f"  → {len(self.complex_types)} types complexes trouvés")
-        self._parse_root_element()   # ← ajoute cette ligne
+        self._parse_root_element()
         self._build_tables()
         print(f"  → {len(self.tables)} tables à générer")
         return self.tables
 
-    # ---------------------------------------------------------------
-    # ÉTAPE 1 : Types simples
-    # ---------------------------------------------------------------
     def _parse_simple_types(self):
-        """
-        Parcourt tous les <xs:simpleType> du XSD et les traduit en types Oracle.
-        Exemple :
-            <xs:simpleType name="DataStringType_35">
-                <xs:restriction base="xs:string">
-                    <xs:maxLength value="35"/>
-                </xs:restriction>
-            </xs:simpleType>
-        → self.simple_types["DataStringType_35"] = "VARCHAR2(35)"
-        """
         for simple_type in self.root.findall(f".//{XS}simpleType[@name]"):
             name = simple_type.get("name")
             oracle_type = self._resolve_simple_type(simple_type)
             self.simple_types[name] = oracle_type
 
     def _resolve_simple_type(self, node):
-        """
-        Traduit un noeud <xs:simpleType> en type Oracle concret.
-        """
         restriction = node.find(f"{XS}restriction")
         if restriction is None:
-            return "VARCHAR2(255)"  # type par défaut si pas de restriction
-
+            return "VARCHAR2(255)"
         base = restriction.get("base", "xs:string").replace("xs:", "")
-
-        # Cherche une contrainte de longueur max
         max_length = restriction.find(f"{XS}maxLength")
         if max_length is not None:
             length = int(max_length.get("value"))
             return f"VARCHAR2({length})"
-
-        # Cherche un pattern numérique (ex: montants)
         pattern = restriction.find(f"{XS}pattern")
         if pattern is not None:
             val = pattern.get("value", "")
-            # Si le pattern ressemble à un nombre (contient des chiffres et points)
             if "[0-9]" in val and ("." in val or "," in val):
                 return "NUMBER(15,5)"
             if "[0-9]" in val:
                 return "NUMBER"
-
-        # Sinon, utilise la correspondance de base
         base_type, _ = TYPE_MAPPING.get(base, ("VARCHAR2", 255))
         return f"{base_type}(255)"
 
-    # ---------------------------------------------------------------
-    # ÉTAPE 2 : Types complexes
-    # ---------------------------------------------------------------
     def _parse_complex_types(self):
-        """
-        Parcourt tous les <xs:complexType> du XSD.
-        Pour chaque type complexe, extrait :
-        - ses champs simples (futurs colonnes)
-        - ses enfants complexes (futures tables liées ou colonnes imbriquées)
-        - ses attributs XML (aussi de futurs colonnes)
-        """
         for complex_type in self.root.findall(f".//{XS}complexType[@name]"):
             name = complex_type.get("name")
             self.complex_types[name] = self._extract_type_info(complex_type)
+
     def _parse_root_element(self):
-        """
-        Cherche l'élément racine du XSD (le premier xs:element enfant direct
-        de xs:schema) et crée une table pour lui.
-        C'est la table principale — ex: TEIF → table FACTURES
-        """
-        # Cherche le premier xs:element enfant direct de la racine du schéma
         root_elem = self.root.find(f"{XS}element")
         if root_elem is None:
             print("  → Aucun élément racine trouvé")
             return
-
         root_name = root_elem.get("name", "ROOT")
         print(f"  → Élément racine trouvé : {root_name}")
-
         table = {
             "table_name": root_name.upper(),
             "original_type": root_name,
             "columns": [],
             "children": [],
         }
-
-        # Colonne PK
         table["columns"].append({
             "name": f"id_{root_name.lower()}",
             "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
             "nullable": False,
         })
-
-        # Cherche le xs:complexType anonyme à l'intérieur de cet élément
         anon_type = root_elem.find(f"{XS}complexType")
         if anon_type is not None:
-            # Extrait les attributs XML (ex: version, controlingAgency)
             for attr in anon_type.findall(f".//{XS}attribute"):
                 attr_name = attr.get("name")
                 use = attr.get("use", "optional")
@@ -155,8 +92,6 @@ class XSDParser:
                         "nullable": (use != "required"),
                         "constraint": "" if use != "required" else " NOT NULL",
                     })
-
-            # Extrait les éléments enfants directs (InvoiceHeader, InvoiceBody...)
             sequence = anon_type.find(f"{XS}sequence")
             if sequence is not None:
                 for child_elem in sequence.findall(f"{XS}element"):
@@ -170,18 +105,45 @@ class XSDParser:
                             "nullable": (min_occurs == 0),
                             "is_list": False,
                         })
-
         self.tables.append(table)
         print(f"  → Table racine créée : {root_name.upper()}")
+
     def _extract_type_info(self, node):
         """
-        Extrait les informations d'un type complexe :
-        retourne un dict {"fields": [...], "children": [...]}
+        Extrait les informations d'un type complexe.
+        Gère deux cas :
+        - xs:sequence : sous-éléments classiques
+        - xs:simpleContent : contenu textuel + attributs
+        ex: <Amount currencyIdentifier="TND">2.540</Amount>
         """
-        fields = []    # colonnes simples (VARCHAR2, NUMBER, DATE...)
-        children = []  # sous-éléments complexes (futures tables ou colonnes imbriquées)
+        fields = []
+        children = []
 
-        # Cherche les éléments dans la séquence
+        # Cas 1 : xs:simpleContent (contenu textuel + attributs)
+        # ex: Amount, LocType, DtmDetailType...
+        simple_content = node.find(f"{XS}simpleContent")
+        if simple_content is not None:
+            extension = simple_content.find(f"{XS}extension")
+            if extension is not None:
+                # Le contenu textuel devient une colonne "value"
+                base_type = extension.get("base", "xs:string")
+                oracle_type = self._resolve_type_ref(base_type)
+                fields.append({
+                    "name": "value",
+                    "type_ref": base_type,
+                    "oracle_type": oracle_type,
+                    "is_complex": False,
+                    "is_list": False,
+                    "nullable": True,
+                })
+                # Les attributs de l'extension deviennent aussi des colonnes
+                for attr in extension.findall(f"{XS}attribute"):
+                    attr_info = self._extract_attribute_info(attr)
+                    if attr_info:
+                        fields.append(attr_info)
+            return {"fields": fields, "children": children}
+
+        # Cas 2 : xs:sequence (sous-éléments classiques) — comportement d'origine
         for elem in node.findall(f".//{XS}element"):
             field_info = self._extract_element_info(elem)
             if field_info:
@@ -190,7 +152,6 @@ class XSDParser:
                 else:
                     fields.append(field_info)
 
-        # Cherche aussi les attributs XML (ex: functionCode="I-62")
         for attr in node.findall(f".//{XS}attribute"):
             attr_info = self._extract_attribute_info(attr)
             if attr_info:
@@ -198,10 +159,11 @@ class XSDParser:
 
         return {"fields": fields, "children": children}
 
+
     def _extract_element_info(self, elem):
         """
         Extrait les infos d'un <xs:element> individuel.
-        Détermine si c'est un champ simple ou un enfant complexe.
+        Gère aussi les types anonymes avec xs:simpleContent.
         """
         name = elem.get("name")
         type_ref = elem.get("type", "")
@@ -214,13 +176,31 @@ class XSDParser:
         is_list = (max_occurs == "unbounded")
         is_nullable = (min_occurs == 0)
 
-        # Est-ce un type complexe connu ?
+        # Cas spécial : type anonyme avec xs:simpleContent
+        # ex: <xs:element name="Amount"><xs:complexType><xs:simpleContent>...
+        anon_complex = elem.find(f"{XS}complexType")
+        if anon_complex is not None:
+            simple_content = anon_complex.find(f"{XS}simpleContent")
+            if simple_content is not None:
+                extension = simple_content.find(f"{XS}extension")
+                if extension is not None:
+                    base_type = extension.get("base", "xs:string")
+                    oracle_type = self._resolve_type_ref(base_type)
+                    return {
+                        "name": name,
+                        "type_ref": base_type,
+                        "oracle_type": oracle_type,
+                        "is_complex": False,
+                        "is_list": is_list,
+                        "nullable": is_nullable or is_list,
+                    }
+
+        # Cas normal : type référencé explicitement
         is_complex = (
             type_ref in self.complex_types or
             type_ref.replace("xs:", "") not in TYPE_MAPPING
         )
 
-        # Résolution du type Oracle si c'est un type simple
         oracle_type = None
         if not is_complex:
             oracle_type = self._resolve_type_ref(type_ref)
@@ -238,23 +218,14 @@ class XSDParser:
         }
 
     def _extract_attribute_info(self, attr):
-        """
-        Extrait les infos d'un <xs:attribute>.
-        Les attributs XML deviennent des colonnes dans la table.
-        Exemple : <xs:attribute name="functionCode" use="required"/>
-        → colonne "functioncode" VARCHAR2(255) NOT NULL
-        """
         name = attr.get("name")
         use = attr.get("use", "optional")
         type_ref = attr.get("type", "")
-
         if not name:
             return None
-
         oracle_type = self._resolve_type_ref(type_ref) if type_ref else "VARCHAR2(255)"
-
         return {
-            "name": f"attr_{name}",   # préfixe "attr_" pour distinguer des éléments
+            "name": f"attr_{name}",
             "type_ref": type_ref,
             "oracle_type": oracle_type,
             "is_complex": False,
@@ -263,122 +234,89 @@ class XSDParser:
         }
 
     def _resolve_type_ref(self, type_ref):
-        """
-        Résout une référence de type (ex: "DataStringType_35", "xs:string")
-        en type Oracle concret.
-        """
-        # Type défini dans le XSD (nos types simples custom)
         if type_ref in self.simple_types:
             return self.simple_types[type_ref]
-
-        # Type XSD natif (xs:string, xs:integer...)
         base = type_ref.replace("xs:", "")
         sql_type, length = TYPE_MAPPING.get(base, ("VARCHAR2", 255))
         if length:
             return f"{sql_type}({length})"
         return sql_type
-    
+
+    def _flatten_type(self, type_name, visited=None):
+        if visited is None:
+            visited = set()
+        if type_name in visited:
+            return []
+        visited.add(type_name)
+        if type_name not in self.complex_types:
+            return []
+        type_info = self.complex_types[type_name]
+        flat_fields = []
+        for field in type_info["fields"]:
+            flat_fields.append(field)
+        for child in type_info["children"]:
+            if not child["is_list"]:
+                child_fields = self._flatten_type(child["type_ref"], visited.copy())
+                for cf in child_fields:
+                    prefixed_field = cf.copy()
+                    prefixed_field["name"] = f"{child['name'].lower()}_{cf['name']}"
+                    flat_fields.append(prefixed_field)
+        return flat_fields
 
     def _build_tables(self):
-            """
-            Décide quoi devient une table Oracle et quoi devient une simple colonne.
-            Règle :
-            - maxOccurs="unbounded" → table séparée avec FK vers la table parente
-            - maxOccurs="1"         → champs absorbés (inline) dans la table parente
-            """
-            # On ne crée une table que pour les types complexes qui sont
-            # référencés avec maxOccurs="unbounded" quelque part dans le XSD,
-            # ou qui sont l'élément racine
-            
-            # Étape 1 : identifier quels types sont des "listes" (maxOccurs="unbounded")
-            # Étape 1 : identifier quels types sont des "listes" (maxOccurs="unbounded")
-            list_types = set()
-            # Types qui doivent TOUJOURS devenir des tables séparées
-            # même si maxOccurs="1" — parce qu'ils contiennent des données
-            # métier importantes qui varient d'une facture à l'autre
-            forced_tables = {
-                "MoaDetailsType",    # montants (HT, TTC, TVA...)
-                "TaxDetailsType",    # taxes (TVA, droit de timbre...)
-                "AlcDetailsType",    # remises/charges
-                "PytSegType",        # conditions de paiement
-                "CtaGrpType",        # contacts
-                "RefGrpType",        # références
-                "AdressesType",      # adresses
-                "LinType",           # lignes de facture
-            }
+        list_types = set()
+        forced_tables = {
+            "MoaDetailsType",
+            "TaxDetailsType",
+            "AlcDetailsType",
+            "PytSegType",
+            "CtaGrpType",
+            "RefGrpType",
+            "AdressesType",
+            "LinType",
+        }
+        list_types.update(forced_tables)
 
-            # On les ajoute directement aux types "liste"
-            list_types.update(forced_tables)
+        for elem in self.root.findall(f".//{XS}element"):
+            max_occurs = elem.get("maxOccurs", "1")
+            if max_occurs == "unbounded":
+                type_ref = elem.get("type", "")
+                if type_ref in self.complex_types:
+                    list_types.add(type_ref)
+                for alt in elem.findall(f"{XS}alternative"):
+                    alt_type = alt.get("type", "")
+                    if alt_type in self.complex_types:
+                        list_types.add(alt_type)
 
-            for elem in self.root.findall(f".//{XS}element"):
-                max_occurs = elem.get("maxOccurs", "1")
-                if max_occurs == "unbounded":
-                    # Façon 1 : type référencé directement
-                    type_ref = elem.get("type", "")
-                    if type_ref in self.complex_types:
-                        list_types.add(type_ref)
+        print(f"  → Types qui sont des listes : {list_types}")
 
-                    # Façon 2 : type référencé via xs:alternative
-                    for alt in elem.findall(f"{XS}alternative"):
-                        alt_type = alt.get("type", "")
-                        if alt_type in self.complex_types:
-                            list_types.add(alt_type)
+        root_element = self.root.find(f"{XS}element")
+        root_type_name = root_element.get("name", "ROOT").upper() if root_element is not None else "ROOT"
 
-                    # Façon 3 : type défini anonymement à l'intérieur
-                    # (xs:complexType sans name, enfant direct de l'élément)
-                    anon = elem.find(f"{XS}complexType")
-                    if anon is not None:
-                        # On crée un nom synthétique pour ce type anonyme
-                        elem_name = elem.get("name", "")
-                        if elem_name:
-                            synth_name = f"{elem_name}AnonType"
-                            list_types.add(synth_name)
-            
-            # Étape 2 : ne créer une table que pour les types "liste"
-            # + l'élément racine (TEIF dans notre cas)
-            root_element = self.root.find(f"{XS}element")
-            root_type_name = root_element.get("name", "ROOT").upper() if root_element is not None else "ROOT"
-            
-            for type_name, type_info in self.complex_types.items():
-                # On crée une table seulement si :
-                # - c'est un type "liste" (maxOccurs="unbounded")
-                # - OU c'est le type racine
-                table_name = type_name.upper().replace("TYPE", "").strip("_")
-                
-                if type_name in list_types or table_name == root_type_name:
-                    table = {
-                        "table_name": table_name,
-                        "original_type": type_name,
-                        "columns": [],
-                        "children": type_info["children"],
-                    }
-
-                    # Colonne PK auto-générée
+        for type_name, type_info in self.complex_types.items():
+            table_name = type_name.upper().replace("TYPE", "").strip("_")
+            if type_name in list_types or table_name == root_type_name:
+                table = {
+                    "table_name": table_name,
+                    "original_type": type_name,
+                    "columns": [],
+                    "children": type_info["children"],
+                }
+                table["columns"].append({
+                    "name": f"id_{table_name.lower()}",
+                    "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
+                    "nullable": False,
+                })
+                flat_fields = self._flatten_type(type_name)
+                for field in flat_fields:
+                    nullable_str = "" if field["nullable"] else " NOT NULL"
                     table["columns"].append({
-                        "name": f"id_{table_name.lower()}",
-                        "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
-                        "nullable": False,
+                        "name": field["name"].lower(),
+                        "sql_type": field["oracle_type"] or "VARCHAR2(255)",
+                        "nullable": field["nullable"],
+                        "constraint": nullable_str,
                     })
-
-                    # Colonnes issues des champs simples
-                    for field in type_info["fields"]:
-                        nullable_str = "" if field["nullable"] else " NOT NULL"
-                        table["columns"].append({
-                            "name": field["name"].lower(),
-                            "sql_type": field["oracle_type"] or "VARCHAR2(255)",
-                            "nullable": field["nullable"],
-                            "constraint": nullable_str,
-                        })
-
-                    self.tables.append(table)
-
-
-                
-
-
-    
-
-    
+                self.tables.append(table)  # ← ligne manquante ajoutée
 
 
 # ---------------------------------------------------------------
@@ -386,14 +324,11 @@ class XSDParser:
 # ---------------------------------------------------------------
 if __name__ == "__main__":
     import sys
-
     if len(sys.argv) < 2:
         print("Usage: python xsd_parser.py <chemin_vers_xsd>")
         sys.exit(1)
-
     parser = XSDParser(sys.argv[1])
     tables = parser.parse()
-
     print("\n=== RÉSULTAT ===")
     for table in tables:
         print(f"\nTable : {table['table_name']}")
