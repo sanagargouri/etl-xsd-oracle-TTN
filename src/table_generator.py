@@ -159,8 +159,8 @@ if __name__ == "__main__":
     # Étape 1 : parser le XSD
     print("=== ÉTAPE 1 : Parsing du XSD ===")
     parser = XSDParser(sys.argv[1])
-    tables = parser.parse()
-
+    tables, tag_map = parser.parse()
+    
     # Étape 2 : créer les tables dans Oracle
     print("\n=== ÉTAPE 2 : Création des tables dans Oracle ===")
     generator = TableGenerator(
