@@ -1,15 +1,17 @@
 # xml_extractor.py
 from lxml import etree
+from itertools import count
 
 class XMLExtractor:
     def __init__(self, xml_path, tables, tag_map):
         """
         xml_path : chemin vers le fichier XML à lire
         tables   : liste de tables produite par xsd_parser.py
+        tag_map  : dictionnaire {type_xsd: nom_balise_xml} produit par xsd_parser.py
         """
         self.xml_path = xml_path
         self.tables = tables
-        self.tag_map = tag_map 
+        self.tag_map = tag_map
         self.data = {}  # {nom_table: [liste de lignes]}
 
         # Construit un index des tables par nom pour accès rapide
@@ -18,31 +20,28 @@ class XMLExtractor:
     def extract(self):
         """
         Point d'entrée principal.
-        Lit le XML et extrait les données pour chaque table.
+        Lit le XML et extrait les données pour chaque table,
+        en parcourant récursivement la hiérarchie TEIF → enfants → petits-enfants...
         """
         print(f"\nExtraction du XML : {self.xml_path}")
 
-        # Parse le fichier XML avec lxml
         tree = etree.parse(self.xml_path)
         root = tree.getroot()
 
-        # Initialise le dictionnaire de données
+        # Initialise le dictionnaire de données et les compteurs d'ID
         for table in self.tables:
             self.data[table["table_name"]] = []
+        self.id_counters = {}
 
-        # Extrait les données de l'élément racine (TEIF)
+        # Démarre l'extraction récursive à partir de la racine
         root_table = self._find_root_table()
         if root_table:
-            root_row = self._extract_attributes(root, root_table)
-            self.data[root_table["table_name"]].append(root_row)
-            print(f"  → {root_table['table_name']} : 1 ligne extraite")
+            self._extract_element_recursive(root, root_table, parent_local_id=None)
 
-        # Extrait les données de chaque table enfant
+        # Affiche le résumé (nombre de lignes par table)
         for table in self.tables:
-            if "parent_table" in table:
-                rows = self._extract_table_data(root, table)
-                self.data[table["table_name"]] = rows
-                print(f"  → {table['table_name']} : {len(rows)} ligne(s) extraite(s)")
+            n = len(self.data[table["table_name"]])
+            print(f"  → {table['table_name']} : {n} ligne(s) extraite(s)")
 
         return self.data
 
@@ -53,11 +52,64 @@ class XMLExtractor:
                 return table
         return None
 
+    def _next_local_id(self, table_name):
+        """
+        Retourne le prochain ID local (1, 2, 3...) pour cette table.
+        Ces IDs sont temporaires : ils servent uniquement à relier
+        les lignes parent/enfant en mémoire, avant le chargement dans Oracle.
+        """
+        if table_name not in self.id_counters:
+            self.id_counters[table_name] = count(1)
+        return next(self.id_counters[table_name])
+
+    def _extract_element_recursive(self, elem, table, parent_local_id):
+        """
+        Extrait une ligne pour 'elem' selon la définition de 'table',
+        lui assigne un _local_id, note son _parent_local_id,
+        puis cherche récursivement les tables enfants SOUS CET ÉLÉMENT SEULEMENT.
+        """
+        # Extrait les attributs XML (comme avant)
+        row = self._extract_attributes(elem, table)
+
+        # Extrait les valeurs des sous-éléments (comme avant)
+        for col in table["columns"]:
+            col_name = col["name"]
+            if col_name.startswith("id_") or col_name.startswith("attr_"):
+                continue
+            value = self._find_column_value(elem, col_name)
+            if value is not None:
+                row[col_name] = value
+
+        # Attribue un ID local unique à cette ligne
+        local_id = self._next_local_id(table["table_name"])
+        row["_local_id"] = local_id
+        if parent_local_id is not None:
+            row["_parent_local_id"] = parent_local_id
+
+        self.data[table["table_name"]].append(row)
+
+        # Cherche les tables enfants de CETTE table précise
+        child_tables = [t for t in self.tables if t.get("parent_table") == table["table_name"]]
+
+        for child_table in child_tables:
+            original_type = child_table.get("original_type", "")
+            xml_tag = self.tag_map.get(original_type, "")
+            if not xml_tag:
+                continue
+
+            # Cherche les balises SEULEMENT sous 'elem' (pas tout le document)
+            child_elements = self._find_elements(elem, xml_tag)
+
+            for child_elem in child_elements:
+                self._extract_element_recursive(child_elem, child_table, parent_local_id=local_id)
+
+        return local_id
+
     def _extract_attributes(self, elem, table):
         """
         Extrait les attributs XML d'un élément
         et les mappe aux colonnes de la table.
-        
+
         Ex: <TEIF version="1.8.8"> → {attr_version: "1.8.8"}
         """
         row = {}
@@ -77,55 +129,15 @@ class XMLExtractor:
     def _find_elements(self, root, tag_name):
         """
         Cherche tous les éléments avec un nom de balise donné
-        dans tout le XML (insensible à la casse et aux namespaces).
+        dans tout le sous-arbre de 'root' (insensible à la casse et aux namespaces).
         """
         results = []
-        # Parcourt tout l'arbre XML
         for elem in root.iter():
             # Supprime le namespace si présent (ex: {http://...}TagName)
             local_name = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
             if local_name.lower() == tag_name.lower():
                 results.append(elem)
         return results
-
-    def _extract_table_data(self, root, table):
-        """
-        Extrait toutes les lignes de données pour une table donnée.
-        Utilise tag_map pour trouver le bon nom de balise XML.
-        """
-        rows = []
-        original_type = table.get("original_type", "")
-
-        # Utilise tag_map pour trouver le vrai nom de balise XML
-        xml_tag = self.tag_map.get(original_type, "")
-        if not xml_tag:
-            return rows
-
-        # Cherche tous les éléments correspondants dans le XML
-        elements = self._find_elements(root, xml_tag)
-
-        for elem in elements:
-            row = {}
-
-            # Extrait les attributs XML
-            for xml_attr, val in elem.attrib.items():
-                col_name = f"attr_{xml_attr.lower()}"
-                if col_name in [c["name"] for c in table["columns"]]:
-                    row[col_name] = val
-
-            # Extrait les valeurs des sous-éléments
-            for col in table["columns"]:
-                col_name = col["name"]
-                if col_name.startswith("id_") or col_name.startswith("attr_"):
-                    continue
-                value = self._find_column_value(elem, col_name)
-                if value is not None:
-                    row[col_name] = value
-
-            if row:
-                rows.append(row)
-
-        return rows
 
     def _find_column_value(self, elem, col_name):
         """
