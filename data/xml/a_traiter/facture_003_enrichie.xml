@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEIF version="1.8.8" controlingAgency="TTN">
+
+    <FreeTextDetail subjectCode="ABL">
+        <FreeTexts>Texte de test pour verifier l'extraction</FreeTexts>
+    </FreeTextDetail>
+
+    <PartDetail functionCode="I-62">
+        <Nad>
+            <PartnerName>Tunisie TradeNet</PartnerName>
+        </Nad>
+        <Loc functionCode="8">
+            <Value>Tunis</Value>
+        </Loc>
+    </PartDetail>
+
+    <Lin itemIdentifier="1">
+        <LinImd>
+            <ItemCode>DDM</ItemCode>
+            <ItemDescription>Dossier DDM</ItemDescription>
+        </LinImd>
+        <LinQty>
+            <Quantity>1.0</Quantity>
+        </LinQty>
+        <ApiDetails lang="fr">
+            <ApiCode>001</ApiCode>
+            <ApiDescription>Description test API</ApiDescription>
+        </ApiDetails>
+    </Lin>
+
+    <AllowanceDetails>
+        <Alc allowanceCode="A01" lang="fr">
+            <AllowanceIdentifier>REMISE</AllowanceIdentifier>
+            <SpecialServices>Service test</SpecialServices>
+        </Alc>
+        <Moa amountTypeCode="I-183" currencyIdentifier="TND" currencyCodeList="ISO" lang="fr">
+            <Amount>10.000</Amount>
+            <AmountDescription>Dix dinars</AmountDescription>
+        </Moa>
+    </AllowanceDetails>
+
+</TEIF>
