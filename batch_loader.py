@@ -1,6 +1,7 @@
 # batch_loader.py
 import os
 import sys
+import time
 sys.path.append("src")
 
 from xsd_parser import XSDParser
@@ -38,11 +39,14 @@ def process_batch(xsd_path, xml_folder, loader):
         xml_path = os.path.join(xml_folder, filename)
         print(f"\n--- Traitement de {filename} ---")
 
+        debut = time.time()
+
         try:
             extractor = XMLExtractor(xml_path, tables, tag_map)
             data = extractor.extract()
 
             total_loaded = loader.load_all(tables, data)
+            duree = round(time.time() - debut, 2)
 
             results.append({
                 "fichier": filename,
@@ -50,14 +54,30 @@ def process_batch(xsd_path, xml_folder, loader):
                 "lignes_chargees": total_loaded,
             })
 
+            loader.log_result(
+                nom_fichier=filename,
+                statut="OK",
+                lignes_chargees=total_loaded,
+                duree_secondes=duree,
+            )
+
         except Exception as e:
             # Un fichier en erreur ne doit pas arrêter le traitement des autres
+            duree = round(time.time() - debut, 2)
             print(f"    ERREUR sur {filename} : {e}")
             results.append({
                 "fichier": filename,
                 "statut": "ERREUR",
                 "erreur": str(e),
             })
+
+            loader.log_result(
+                nom_fichier=filename,
+                statut="ERREUR",
+                lignes_chargees=0,
+                message_erreur=str(e),
+                duree_secondes=duree,
+            )
             continue
 
     return results
@@ -102,6 +122,7 @@ if __name__ == "__main__":
 
     try:
         loader.connect()
+        loader.create_log_table()
         results = process_batch(xsd_path, xml_folder, loader)
         print_batch_summary(results)
     finally:

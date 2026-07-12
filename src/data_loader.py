@@ -41,6 +41,62 @@ class DataLoader:
             self.connection.close()
         print("🔌 Déconnecté d'Oracle")
 
+    def create_log_table(self):
+        """
+        Crée la table ETL_LOG si elle n'existe pas déjà.
+        Une ligne = une exécution de traitement pour un fichier XML donné.
+        Ne supprime jamais la table existante (contrairement aux tables de
+        données) : on veut conserver l'historique d'une exécution à l'autre.
+        """
+        self.cursor.execute(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = 'ETL_LOG'"
+        )
+        exists = self.cursor.fetchone()[0] > 0
+
+        if exists:
+            print(" Table ETL_LOG déjà présente")
+            return
+
+        ddl = """
+        CREATE TABLE ETL_LOG (
+            id_log NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            nom_fichier VARCHAR2(255) NOT NULL,
+            date_traitement TIMESTAMP DEFAULT SYSTIMESTAMP,
+            statut VARCHAR2(20) NOT NULL,
+            lignes_chargees NUMBER,
+            message_erreur VARCHAR2(4000),
+            duree_secondes NUMBER
+        )
+        """
+        self.cursor.execute(ddl)
+        self.connection.commit()
+        print(" Table ETL_LOG créée")
+
+    def log_result(self, nom_fichier, statut, lignes_chargees=0,
+                    message_erreur=None, duree_secondes=None):
+        """
+        Enregistre le résultat du traitement d'un fichier dans ETL_LOG.
+
+        nom_fichier      : nom du fichier XML traité
+        statut           : 'OK' ou 'ERREUR'
+        lignes_chargees  : nombre de lignes chargées avec succès
+        message_erreur   : message d'erreur si statut == 'ERREUR', sinon None
+        duree_secondes   : durée du traitement en secondes
+        """
+        # Tronque le message d'erreur si besoin (colonne limitée à 4000 caractères)
+        if message_erreur and len(message_erreur) > 4000:
+            message_erreur = message_erreur[:3997] + "..."
+
+        self.cursor.execute(
+            """
+            INSERT INTO ETL_LOG
+                (nom_fichier, statut, lignes_chargees, message_erreur, duree_secondes)
+            VALUES (:1, :2, :3, :4, :5)
+            """,
+            [nom_fichier, statut, lignes_chargees, message_erreur, duree_secondes]
+        )
+        self.connection.commit()
+
     def _get_pk_column(self, table):
         """
         Trouve la colonne clé primaire d'une table

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEIF version="1.8.8" controlingAgency="TTN">
+    <PartDetail functionCode="I-62">
+        <Nad>
+            <PartnerName>Test Erreur
+        </Nad>
+    <!-- balise PartDetail jamais fermée, XML invalide -->
