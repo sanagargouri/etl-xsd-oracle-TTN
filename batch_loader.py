@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import shutil
 sys.path.append("src")
 
 from xsd_parser import XSDParser
@@ -9,18 +10,35 @@ from xml_extractor import XMLExtractor
 from data_loader import DataLoader
 
 
-def process_batch(xsd_path, xml_folder, loader):
+def process_batch(xsd_path, xml_folder, loader, dossier_traites=None, dossier_erreurs=None):
     """
     Traite tous les fichiers .xml d'un dossier :
-    pour chacun, extrait les données puis les charge dans Oracle.
+    pour chacun, extrait les données, les charge dans Oracle,
+    puis déplace le fichier vers 'traites' (succès) ou 'erreurs' (échec).
+    Ce déplacement évite de retraiter les mêmes fichiers au passage suivant
+    (indispensable une fois qu'on planifie l'exécution automatique).
 
-    xsd_path   : chemin vers le fichier XSD (parsé une seule fois)
-    xml_folder : dossier contenant les fichiers XML à traiter
-    loader     : instance de DataLoader déjà connectée à Oracle
+    xsd_path        : chemin vers le fichier XSD (parsé une seule fois)
+    xml_folder      : dossier contenant les fichiers XML à traiter
+    loader          : instance de DataLoader déjà connectée à Oracle
+    dossier_traites : dossier où déplacer les fichiers traités avec succès
+                       (par défaut : <parent de xml_folder>/traites)
+    dossier_erreurs : dossier où déplacer les fichiers en échec
+                       (par défaut : <parent de xml_folder>/erreurs)
 
     Retourne un résumé : liste de résultats par fichier
     (nom, statut "OK"/"ERREUR", nombre de lignes chargées ou message d'erreur)
     """
+    # Détermine les dossiers de destination par défaut, à côté de xml_folder
+    parent = os.path.dirname(xml_folder.rstrip("\\/"))
+    if dossier_traites is None:
+        dossier_traites = os.path.join(parent, "traites")
+    if dossier_erreurs is None:
+        dossier_erreurs = os.path.join(parent, "erreurs")
+
+    os.makedirs(dossier_traites, exist_ok=True)
+    os.makedirs(dossier_erreurs, exist_ok=True)
+
     print(f"=== Parsing du XSD (une seule fois) ===")
     parser = XSDParser(xsd_path)
     tables, tag_map = parser.parse()
@@ -61,6 +79,9 @@ def process_batch(xsd_path, xml_folder, loader):
                 duree_secondes=duree,
             )
 
+            # Déplace le fichier traité pour ne pas le retraiter au prochain passage
+            shutil.move(xml_path, os.path.join(dossier_traites, filename))
+
         except Exception as e:
             # Un fichier en erreur ne doit pas arrêter le traitement des autres
             duree = round(time.time() - debut, 2)
@@ -78,6 +99,9 @@ def process_batch(xsd_path, xml_folder, loader):
                 message_erreur=str(e),
                 duree_secondes=duree,
             )
+
+            # Déplace aussi le fichier en échec, pour ne pas boucler dessus indéfiniment
+            shutil.move(xml_path, os.path.join(dossier_erreurs, filename))
             continue
 
     return results

@@ -1,0 +1,373 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEIF controlingAgency="TTN" version="1.8.8">
+  <InvoiceHeader>
+    <MessageSenderIdentifier type="I-01">0736202XAM000</MessageSenderIdentifier>
+    <MessageRecieverIdentifier type="I-01">0914089JAM000</MessageRecieverIdentifier>
+  </InvoiceHeader>
+  <InvoiceBody>
+    <Bgm>
+      <DocumentIdentifier>12016_2012</DocumentIdentifier>
+      <DocumentType code="I-11">Facture</DocumentType>
+    </Bgm>
+    <Dtm>
+      <DateText format="ddMMyy" functionCode="I-31">070612</DateText>
+      <DateText format="ddMMyy-ddMMyy" functionCode="I-36">010512-310512</DateText>
+      <DateText format="ddMMyy" functionCode="I-32">070712</DateText>
+    </Dtm>
+    <PartnerSection>
+      <PartnerDetails functionCode="I-62">
+        <Nad>
+          <PartnerIdentifier type="I-01">0736202XAM000</PartnerIdentifier>
+          <PartnerName nameType="Qualification">Tunisie TradeNet</PartnerName>
+          <PartnerAdresses lang="fr">
+            <AdressDescription>Lotissement El Khalij Les Berges du Lac</AdressDescription>
+            <Street>Rue du Lac Malaren</Street>
+            <CityName>Tunis</CityName>
+            <PostalCode>1053</PostalCode>
+            <Country codeList="ISO_3166-1">TN</Country>
+          </PartnerAdresses>
+        </Nad>
+        <RffSection>
+          <Reference refID="I-815">B154702000</Reference>
+        </RffSection>
+        <RffSection>
+          <Reference refID="I-816">SA</Reference>
+        </RffSection>
+        <CtaSection>
+          <Contact functionCode="I-94">
+            <ContactIdentifier>TTN</ContactIdentifier>
+            <ContactName>Tunisie TradeNet</ContactName>
+          </Contact>
+          <Communication>
+            <ComMeansType>I-101</ComMeansType>
+            <ComAdress>71 861 712</ComAdress>
+          </Communication>
+        </CtaSection>
+        <CtaSection>
+          <Contact functionCode="I-94">
+            <ContactIdentifier>TTN</ContactIdentifier>
+            <ContactName>Tunisie TradeNet</ContactName>
+          </Contact>
+          <Communication>
+            <ComMeansType>I-102</ComMeansType>
+            <ComAdress>71 861 141</ComAdress>
+          </Communication>
+        </CtaSection>
+        <CtaSection>
+          <Contact functionCode="I-94">
+            <ContactIdentifier>TTN</ContactIdentifier>
+            <ContactName>Tunisie TradeNet</ContactName>
+          </Contact>
+          <Communication>
+            <ComMeansType>I-104</ComMeansType>
+            <ComAdress>www.tradenet.com.tn</ComAdress>
+          </Communication>
+        </CtaSection>
+      </PartnerDetails>
+      <PartnerDetails functionCode="I-64">
+        <Nad>
+          <PartnerIdentifier type="I-01">0914089JAM000</PartnerIdentifier>
+          <PartnerName nameType="Qualification">STE FRERE ET MOSAIQUE</PartnerName>
+          <PartnerAdresses lang="fr">
+            <AdressDescription/>
+            <Street/>
+            <CityName>Salle publique Tunis</CityName>
+            <PostalCode>1000</PostalCode>
+            <Country codeList="ISO_3166-1">TN</Country>
+          </PartnerAdresses>
+        </Nad>
+        <RffSection>
+          <Reference refID="I-81">0914089J</Reference>
+        </RffSection>
+        <RffSection>
+          <Reference refID="I-811">SMTP</Reference>
+        </RffSection>
+        <RffSection>
+          <Reference refID="I-813">Salle Publique</Reference>
+        </RffSection>
+        <RffSection>
+          <Reference refID="I-812">P</Reference>
+        </RffSection>
+        <RffSection>
+          <Reference refID="I-814">41115530</Reference>
+        </RffSection>
+      </PartnerDetails>
+    </PartnerSection>
+    <PytSection>
+      <PytSectionDetails>
+        <Pyt>
+          <PaymentTearmsTypeCode>I-114</PaymentTearmsTypeCode>
+          <PaymentTearmsDescription>Les banques sont priees de payer au RIB suivant: 0410 5044 4047 0138 1036.</PaymentTearmsDescription>
+        </Pyt>
+      </PytSectionDetails>
+      <PytSectionDetails>
+        <Pyt>
+          <PaymentTearmsTypeCode>I-115</PaymentTearmsTypeCode>
+          <PaymentTearmsDescription>A Regler exclusivement au niveau des bureaux postaux sur presentation de la facture.</PaymentTearmsDescription>
+        </Pyt>
+        <PytFii functionCode="I-141">
+          <AccountHolder>
+            <AccountNumber>0120021241115530</AccountNumber>
+            <OwnerIdentifier>1B</OwnerIdentifier>
+          </AccountHolder>
+          <InstitutionIdentification nameCode="0760">
+            <BranchIdentifier>0760</BranchIdentifier>
+            <InstitutionName>La poste</InstitutionName>
+          </InstitutionIdentification>
+        </PytFii>
+      </PytSectionDetails>
+    </PytSection>
+    <LinSection>
+      <Lin>
+        <ItemIdentifier>1</ItemIdentifier>
+        <LinImd lang="fr">
+          <ItemCode>DDM</ItemCode>
+          <ItemDescription>Dossier DDM</ItemDescription>
+        </LinImd>
+        <LinQty>
+          <Quantity measurementUnit="UNIT">1.0</Quantity>
+        </LinQty>
+        <LinTax>
+          <TaxTypeName code="I-1602">TVA</TaxTypeName>
+          <TaxDetails>
+            <TaxRate>12</TaxRate>
+          </TaxDetails>
+        </LinTax>
+        <LinMoa>
+          <MoaDetails>
+            <Moa amountTypeCode="I-183" currencyCodeList="ISO_4217">
+              <Amount currencyIdentifier="TND">2.000</Amount>
+            </Moa>
+          </MoaDetails>
+          <MoaDetails>
+            <Moa amountTypeCode="I-171" currencyCodeList="ISO_4217">
+              <Amount currencyIdentifier="TND">2.000</Amount>
+            </Moa>
+          </MoaDetails>
+        </LinMoa>
+      </Lin>
+    </LinSection>
+    <InvoiceMoa>
+      <AmountDetails>
+        <Moa amountTypeCode="I-179" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="TND">2000000</Amount>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
+        <Moa amountTypeCode="I-180" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="TND">2.540</Amount>
+          <AmountDescription lang="fr">DEUX DINARS ET CINQ CENT QUARANTE MILLIMES</AmountDescription>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
+        <Moa amountTypeCode="I-176" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="TND">2.000</Amount>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
+        <Moa amountTypeCode="I-182" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="TND">2.000</Amount>
+        </Moa>
+      </AmountDetails>
+      <AmountDetails>
+        <Moa amountTypeCode="I-181" currencyCodeList="ISO_4217">
+          <Amount currencyIdentifier="TND">0.240</Amount>
+        </Moa>
+      </AmountDetails>
+    </InvoiceMoa>
+    <InvoiceTax>
+      <InvoiceTaxDetails>
+        <Tax>
+          <TaxTypeName code="I-1601">droit de timbre</TaxTypeName>
+          <TaxDetails>
+            <TaxRate>0</TaxRate>
+          </TaxDetails>
+        </Tax>
+        <AmountDetails>
+          <Moa amountTypeCode="I-178" currencyCodeList="ISO_4217">
+            <Amount currencyIdentifier="TND">0.300</Amount>
+          </Moa>
+        </AmountDetails>
+      </InvoiceTaxDetails>
+      <InvoiceTaxDetails>
+        <Tax>
+          <TaxTypeName code="I-1602">TVA</TaxTypeName>
+          <TaxDetails>
+            <TaxRate>12.0</TaxRate>
+          </TaxDetails>
+        </Tax>
+        <AmountDetails>
+          <Moa amountTypeCode="I-177" currencyCodeList="ISO_4217">
+            <Amount currencyIdentifier="TND">2.000</Amount>
+          </Moa>
+        </AmountDetails>
+        <AmountDetails>
+          <Moa amountTypeCode="I-178" currencyCodeList="ISO_4217">
+            <Amount currencyIdentifier="TND">0.240</Amount>
+          </Moa>
+        </AmountDetails>
+      </InvoiceTaxDetails>
+    </InvoiceTax>
+  </InvoiceBody>
+  <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="SigFrs">
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference Id="r-id-frs" Type="" URI="">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+            <ds:XPath>not(ancestor-or-self::ds:Signature)</ds:XPath>
+          </ds:Transform>
+          <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+            <ds:XPath>not(ancestor-or-self::RefTtnVal)</ds:XPath>
+          </ds:Transform>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>bCtqJZah+oGHv2z1bsUbJk2Q4/P+v0gFEvhr5I/is1E=</ds:DigestValue>
+      </ds:Reference>
+      <ds:Reference Type="http://uri.etsi.org/01903#SignedProperties" URI="#xades-SigFrs">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>mInZko4fu4O3cpG9+sOaJOWWEvZghTEFwqEZsU+mVSk=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue Id="value-SigFrs">DpyejsAd/4OP7uqlBvJKtBdOtWp0nuMAPf9TMi0TWBLLKM2SR61VTb49kdy37XTBVGaJTE7NaJ8J9OKbIXUH/Qm78jn7mjkvNqHliLBZ/WW1n1FU96v0IN+5mv6Pw18SvZGjLKgbwH4PMGZYSLfjtlZ8oJxHLLsVooBO0GzkjO3w05ykfeVvDJz89Fm+FbJh84pbNXp67WcBg4zu6HbCFidDXi653yaMrRDnhA3r4IxSi4bG8CkuzdDy6XUpK3/a0o69K07hg6S54NWao7Aw0TVQIc0B6BpnxytkA7cZ7AiPeHl9Xz8a5Lm5ytzxulYuFkz2pwAW6oWGzs6VzsJPoA==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>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</ds:X509Certificate>
+        <ds:X509Certificate>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</ds:X509Certificate>
+        <ds:X509Certificate>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</ds:X509Certificate>
+        <ds:X509Certificate>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</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+    <ds:Object>
+      <xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="#SigFrs">
+        <xades:SignedProperties Id="xades-SigFrs">
+          <xades:SignedSignatureProperties>
+            <xades:SigningTime>2020-09-16T11:37:16Z</xades:SigningTime>
+            <xades:SigningCertificateV2>
+              <xades:Cert>
+                <xades:CertDigest>
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+                  <ds:DigestValue>lNeILSzjoMfAGZWD/MvRYcvQ2tw=</ds:DigestValue>
+                </xades:CertDigest>
+                <xades:IssuerSerialV2>MIGAMHSkcjBwMQswCQYDVQQGEwJUTjEOMAwGA1UEBwwFVHVuaXMxLjAsBgNVBAoMJU5hdGlvbmFsIERpZ2l0YWwgQ2VydGlmaWNhdGlvbiBBZ2VuY3kxITAfBgNVBAMMGFRuVHJ1c3QgUXVhbGlmaWVkIEdvdiBDQQIIBW0G+ewtTEA=</xades:IssuerSerialV2>
+              </xades:Cert>
+            </xades:SigningCertificateV2>
+            <xades:SignaturePolicyIdentifier>
+              <xades:SignaturePolicyId>
+                <xades:SigPolicyId>
+                  <xades:Identifier Qualifier="OIDasURN">urn:2.16.788.1.2.1</xades:Identifier>
+                  <xades:Description>Politique de signature de la facture electronique</xades:Description>
+                </xades:SigPolicyId>
+                <xades:SigPolicyHash>
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                  <ds:DigestValue>3J1oMkha+OAlm9hBNCcAS+/nbKokG8Gf9N3XPipP7yg=</ds:DigestValue>
+                </xades:SigPolicyHash>
+                <xades:SigPolicyQualifiers>
+                  <xades:SigPolicyQualifier>
+                    <xades:SPURI>http://www.tradenet.com.tn/portal/telechargerTelechargement?lien=Politique_de_Signature_de_la_facture_electronique.pdf</xades:SPURI>
+                  </xades:SigPolicyQualifier>
+                </xades:SigPolicyQualifiers>
+              </xades:SignaturePolicyId>
+            </xades:SignaturePolicyIdentifier>
+            <xades:SignerRoleV2>
+              <xades:ClaimedRoles>
+                <xades:ClaimedRole>CEO</xades:ClaimedRole>
+              </xades:ClaimedRoles>
+            </xades:SignerRoleV2>
+          </xades:SignedSignatureProperties>
+          <xades:SignedDataObjectProperties>
+            <xades:DataObjectFormat ObjectReference="#r-id-frs">
+              <xades:MimeType>application/octet-stream</xades:MimeType>
+            </xades:DataObjectFormat>
+          </xades:SignedDataObjectProperties>
+        </xades:SignedProperties>
+      </xades:QualifyingProperties>
+    </ds:Object>
+  </ds:Signature>
+  <RefTtnVal>
+    <ReferenceTTN refID="I-88">073620200053562920196810312</ReferenceTTN>
+    <ReferenceDate>
+      <DateText format="ddMMyyHHmm" functionCode="I-37">1609201239</DateText>
+    </ReferenceDate>
+    <ReferenceCEV>iVBORw0KGgoAAAANSUhEUgAAASwAAAEsAQAAAABRBrPYAAAFmElEQVR42u2aQa6jSgxFjRjUjGwAqbZRM7ZENgDJBmBLzGobSGwAZgxK8T8mo6R78L9UNfp5Qq0X+kSqxvb1tWnRf/Ozyw/7YT/sh/2w/xMm4rb5XAcnjav3bm06fWqtsRXxxTDPnaHbXs4/z7VauJPup4wxjVoOa6u4zbF+dfUR27u2twV+e3Spd0UxqeLaO46nzyU1oRXXjktpTKegeyd2yDP10t7jpmdbErMoNNL24vdum2Qj7jvfcn8JVj6MfOMwf7n+SMuMGD/b5Npb9Eesd8fZAFYS4I8CzIhJtbT8268oJHHcrp+6jnw3lMPWPqTxVOWK+rSa8vNZz5TYUg7TyW3UVHXK0BHxlSRvXJIg9+iLYXKz49UHhRwT5TyIPzgbl5bDUuO2vUtDJ+Oix0KVISAU2vp5tsxY34kEvzs/R311a8W9Re7kW9RiGB83XVZT6UCO0SAQLp06uX9XfUZMxjM1/HqSZu1N/dTZzUHIhHIYktVajoXtWNL9kmjg3UJTEBs61FJfopPoI7z7EQcmIuUw2hB30hjVlFn8rOl2AqShILY9wvbqWjDCzTkt4jT9c7vCUQhrUcs7NaVcay9r3xF95FpuS0FsPFFpuu16i/Vxmlw/43rlQDlse6CQgjjXs/VfKy7islNfX1HIiSmxHtFMc1P+ULmf/kEGhnoqiPkHObZwGHM1z2UVQau3l0j1EYW8WFvR3B2nMsEk5+8WBan4KAUx0//ICfmlfkiqcMsuDaHtP6s+K4btF5sCaA1BZ3PI3jzGYqcthplP41Hs9tjXO25cWnPLgq8rh2H7PZk2Of9Wy75DLeGxGVoOOxbLLgnraFYcA0n3R8Tq6fNsWTHaKxItVPRMkivnBE6DKZiWwxgBJutENQd7OKKQbhQ49saVw+hB643jmaupX4EuTznXWI5Pic6L2bxDn0Wp4Pugl2s1s9F8FmBWjMpNFDKxZnTlr3a64UIH5CqH4Wo2C72zeec4LeKzmlMdQjnMIj4F/wqW7XTAwcwGmsnXtRhGglnxIhrjIozt8zVj9ja2+2KYNfdHsFijzHetJ7tN7n3vQ7JitDw8uTlVBkkiTsox1d5NTMphVFN7Tcoes2qriYCXY8iy8acYhlASCOZHooCYbEx5DCBN+GM1kRNjNifT9EET7MxQTRTaycPhz3IYHbDWmOi8IqswSwq2ygbMPxplRqx+mkrrcdJ8FRnBzxxKa/CfI09ebK0ijd6WTjjzp9rGoLHV05eryYv5az9gbsr2Eh1HxaUzzGJyymGWbI1DuIgCGb5xTnrfThS+hSsjxsRh09wuFxCYJb1JqG7zx2oiM4ZGYb+PiDNHnFPvbGM5BUuGYhjW1BbCGMXRFjLoZDuYiMlNy2EYVDogEs19Sjg11JdbkRQJ5TCmj3Vc2kF4GlfuLTrjVPXa75XCTP+fWKlgammuNVj6vf1VMcwskwkIviJemWDLH7QLlfbFMNuL4k4bbIzT99Qj13KvigWxV6AdeHw4z8FcjdgrlfFyyAUx9Dnabu254C7IPXudsYf6c92UF9NDrReYG3fIyDVencSd6GgxTMaIeUu9JcB6PX/GZ9X3XrEUhmLY+7ibbrak1WS7l1gTl+lr6ZcT48mn6qwfzpL8dUXhahPtUBAj2Ta10MvlncSef+CZ+MdnsLJil/9fmF7N1VSR6DP7oNvfC6Ks2HtRcLm4iGqtlW1+alsEfb+oyojZrDE4osB50njSlWwX9MLVhHKYvUeY4/borIQnJ0xY10TpP9tuXsxes9LyGieV3SMKfMR12G6tJGarCTSEJ2AOCg2JnO1rWZodY1onEPb65uC226i13n1tfvJiZozNPhHopb2ZpFBZDFxfEp0X4wnYIMAUOXQMdGsV3y+MGDPLYb//bfLDftgP+2E/7D9h/wDXxRRC2h7o9AAAAABJRU5ErkJggg==</ReferenceCEV>
+  </RefTtnVal>
+  <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="SigTTN">
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference Id="r-id-ttn" Type="" URI="">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+            <ds:XPath>not(ancestor-or-self::ds:Signature)</ds:XPath>
+          </ds:Transform>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>VbxzuqvCIhxQ/S/iV1P7fFkogYukQTbZQcV6dWCRSG0=</ds:DigestValue>
+      </ds:Reference>
+      <ds:Reference Type="http://uri.etsi.org/01903#SignedProperties" URI="#xades-SigTTN">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>RZwuZwRI05UjWrBd1maRtYtEz17PiwLOn+TxKVMB0Mw=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue Id="value-SigTTN">cHnckjaETogw6KOxCkt8kagBp6wU5qDskel8TG4kqYsZVyc6DzZQmhTAO56TeCSb0q1yB0T9j2NSCMbMvA8/x0CHv27BX+IGYP0boPFUilSlrqYvyy4NAoEuBJ+Yvs7G3SYMSd4a/yTWKc1SXWQ87XBIqd+pYvOseuSrK2jrTF2DlkM4azgj/I0DPLbSoL2LOoOP/Lgx9eVEVgemJmiQzw59H/qBopr1x7axb56+T/pYaQd8ddJWMdbwoT5Xjd31cKGXpBpNRTtAdONKPAoRNWQfzTTTHAgE5Y0opE2htifVLdmS5R9rfVo9yCubYJbk4VNlPL8fAlsbc1wDvnecrA==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>MIIFtDCCBBygAwIBAgIIZPouSL81XxYwDQYJKoZIhvcNAQELBQAwcDELMAkGA1UEBhMCVE4xDjAMBgNVBAcMBVR1bmlzMS4wLAYDVQQKDCVOYXRpb25hbCBEaWdpdGFsIENlcnRpZmljYXRpb24gQWdlbmN5MSEwHwYDVQQDDBhUblRydXN0IFF1YWxpZmllZCBHb3YgQ0EwHhcNMTkwNTIyMDkyNTI3WhcNMjEwNTIxMDkyNTI3WjB1MQswCQYDVQQGEwJUTjEZMBcGA1UECgwQVFVOSVNJRSBUUkFERU5FVDEXMBUGA1UEYQwOVkFUVE4tMDczNjIwMlgxFzAVBgNVBAsMDkVMRkFUT09SQSBURVNUMRkwFwYDVQQDDBBUVU5JU0lFIFRSQURFTkVUMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1CiW6pFY4x8ENHEPU+5btLn/faevA25+s3Gw3RzI7EPO87c3z1W+zvYVi+QF+oVjyK8QYb51x9mJzG7Amki2UymC/SSPoJ7sazbihsk6R7aYkfxbdXb70Mgx+3C7YFAQSXbH8za6b++lxYnX5N7lcoFnX/4rCPflvkYb/Ns/9O57j0cpYGfneUnn8n1NZmpDw/n9TpdIMJ2okC0I7Mhmj4SlLKGGlhCGREkkW5KMgoar0G3cCigJVtap4TTJnxQ4Wy68ZxY5V+JmyeUtIOtErDkcuvMAWi84U2z6KI6QjW6V1zzdaalThn9eAenZoalNTsatx90ULnWA9nGBU8+CTQIDAQABo4IByzCCAccwcwYIKwYBBQUHAQEEZzBlMEAGCCsGAQUFBzAChjRodHRwOi8vd3d3LnR1bnRydXN0LnRuL3B1Yi9UblRydXN0UXVhbGlmaWVkR292Q0EuY3J0MCEGCCsGAQUFBzABhhVodHRwOi8vdmEudHVudHJ1c3QudG4wHQYDVR0OBBYEFGcglbWlk3eJU1LhZjFX2ZD0RWw+MAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUcyQoJfoi9pKpFYOkLLPNxsu0A1YwLAYDVR0gBCUwIzAIBgYEAI96AQIwCQYHBACL7EABAzAMBgpghhQBAgYBCgECMEEGA1UdHwQ6MDgwNqA0oDKGMGh0dHA6Ly9jcmwudHVudHJ1c3QudG4vdG50cnVzdHF1YWxpZmllZGdvdmNhLmNybDAOBgNVHQ8BAf8EBAMCBsAwgYAGCCsGAQUFBwEDBHQwcjAIBgYEAI5GAQEwCAYGBACORgEEMBMGBgQAjkYBBjAJBgcEAI5GAQYCMEcGBgQAjkYBBTA9MDsWNWh0dHA6Ly93d3cuY2VydGlmaWNhdGlvbi50bi9wdWIvcGRzLXR1bnRydXN0Z292Y2EucGRmEwJlbjANBgkqhkiG9w0BAQsFAAOCAYEAajfCKr7j/GtpnVxHYY2O0HY1K9iXStwnaKPKHYfzFN0wPMj40fy1drCFOjSNuq52HyQeYwiNqNZn2tgjy1Z0o9ecqrf3PyoTg4og1SiBJKIAEkMdwKj0mV2iiWoqAJgE0UG5D/yvy+3kIWoK8hfusZR9s2pLX9At0LBFxS6iBtGH755BVmAMm0SR4wjpqxJUZViu2H/hnaPS4nlTiw2thzV2XqAfjneE1srVln1ew2hWh7vvNOBsNN/FrPI/AyljLlS9VdGlpq8d5QmaBX67qg9ENDTqN5cJrfOaO3wtFiD0xriIny+6tEoOcZDYWj/Rh4I+gxnOgyOqF7VMeUtmbXaT5O7OnJ8Sqyq3T7kINSjo2MIXrnCHN1HTTdXxqt2Qce64Ugyp9R225z8NTXrbyvYlT9TCZ0la07xIXZT+TM9Gkv4g4uIb/iZ7+z/Ub4WYpPEJtqBi4rewRFTUHu4AyvKmIVz9vVm4XkeMShCjzmIOA41DBvxf0OYISoda5nKY</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+    <ds:Object>
+      <xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="#SigTTN">
+        <xades:SignedProperties Id="xades-SigTTN">
+          <xades:SignedSignatureProperties>
+            <xades:SigningTime>2020-09-16T11:39:56Z</xades:SigningTime>
+            <xades:SigningCertificateV2>
+              <xades:Cert>
+                <xades:CertDigest>
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+                  <ds:DigestValue>lQTgsvNYqR/lEXmzEggsEjOFEmc=</ds:DigestValue>
+                </xades:CertDigest>
+                <xades:IssuerSerialV2>MIGAMHSkcjBwMQswCQYDVQQGEwJUTjEOMAwGA1UEBwwFVHVuaXMxLjAsBgNVBAoMJU5hdGlvbmFsIERpZ2l0YWwgQ2VydGlmaWNhdGlvbiBBZ2VuY3kxITAfBgNVBAMMGFRuVHJ1c3QgUXVhbGlmaWVkIEdvdiBDQQIIZPouSL81XxY=</xades:IssuerSerialV2>
+              </xades:Cert>
+            </xades:SigningCertificateV2>
+            <xades:SignaturePolicyIdentifier>
+              <xades:SignaturePolicyId>
+                <xades:SigPolicyId>
+                  <xades:Identifier Qualifier="OIDasURN">urn:2.16.788.1.2.1</xades:Identifier>
+                  <xades:Description>Politique de signature de la facture electronique</xades:Description>
+                </xades:SigPolicyId>
+                <xades:SigPolicyHash>
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                  <ds:DigestValue>hHzx6VVz53xdLygRU5RUh5YKFuRix57SGWfA1Hc96IA=</ds:DigestValue>
+                </xades:SigPolicyHash>
+                <xades:SigPolicyQualifiers>
+                  <xades:SigPolicyQualifier>
+                    <xades:SPURI>http://www.tradenet.com.tn/portal/telechargerTelechargement?lien=Politique_de_Signature_de_la_facture_electronique.pdf</xades:SPURI>
+                  </xades:SigPolicyQualifier>
+                </xades:SigPolicyQualifiers>
+              </xades:SignaturePolicyId>
+            </xades:SignaturePolicyIdentifier>
+            <xades:SignerRoleV2>
+              <xades:ClaimedRoles>
+                <xades:ClaimedRole>KERNEL</xades:ClaimedRole>
+              </xades:ClaimedRoles>
+            </xades:SignerRoleV2>
+          </xades:SignedSignatureProperties>
+          <xades:SignedDataObjectProperties>
+            <xades:DataObjectFormat ObjectReference="#r-id-ttn">
+              <xades:MimeType>application/octet-stream</xades:MimeType>
+            </xades:DataObjectFormat>
+          </xades:SignedDataObjectProperties>
+        </xades:SignedProperties>
+      </xades:QualifyingProperties>
+    </ds:Object>
+  </ds:Signature>
+</TEIF>
