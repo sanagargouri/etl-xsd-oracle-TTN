@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Tables Oracle{% endblock %}
+
+{% block content %}
+<h2 class="section">Tables générées ({{ tables|length }})</h2>
+
+<form method="get" action="/tables-oracle" style="margin-bottom:26px;">
+    <select name="table" class="freq-select" onchange="this.form.submit()" style="font-size:13px; padding:8px 10px;">
+        <option value="">— Choisir une table —</option>
+        {% for t in tables %}
+        <option value="{{ t.table_name }}" {{ "selected" if selected_table == t.table_name else "" }}>
+            {{ t.table_name }} ({{ t.row_count }} ligne(s))
+        </option>
+        {% endfor %}
+    </select>
+</form>
+
+{% if selected_table %}
+    {% if table_data %}
+        <h2 class="section">{{ table_data.table_name }} — {{ table_data.total_rows }} ligne(s)</h2>
+
+        <div style="overflow-x:auto;">
+        <table class="ledger">
+            <thead>
+                <tr>
+                    {% for col in table_data.columns %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_data.rows %}
+                <tr>
+                    {% for value in row %}
+                    <td>{{ value if value is not none else "—" }}</td>
+                    {% endfor %}
+                </tr>
+                {% else %}
+                <tr><td colspan="{{ table_data.columns|length }}" class="flow-sub">Table vide.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-top:16px; font-family:Arial,sans-serif; font-size:12px; color:var(--gray-600);">
+            {% if table_data.page > 1 %}
+            <a href="/tables-oracle?table={{ selected_table }}&page={{ table_data.page - 1 }}" class="retirer-btn">← Précédent</a>
+            {% endif %}
+            <span>Page {{ table_data.page }} / {{ table_data.total_pages }}</span>
+            {% if table_data.page < table_data.total_pages %}
+            <a href="/tables-oracle?table={{ selected_table }}&page={{ table_data.page + 1 }}" class="retirer-btn">Suivant →</a>
+            {% endif %}
+        </div>
+    {% else %}
+        <p style="font-family:Arial,sans-serif; color:var(--gray-600);">
+            Table introuvable : {{ selected_table }}
+        </p>
+    {% endif %}
+{% else %}
+    <p style="font-family:Arial,sans-serif; color:var(--gray-600);">
+        Choisis une table ci-dessus pour consulter son contenu.
+    </p>
+{% endif %}
+{% endblock %}

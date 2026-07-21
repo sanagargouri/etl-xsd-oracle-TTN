@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Déposer un fichier{% endblock %}
+
+{% block content %}
+<h2 class="section">Déposer des fichiers XML</h2>
+
+<div class="upload-box">
+    <p>
+        Les fichiers rejoignent le dossier <span class="mono">a_traiter</span> sans traitement immédiat.
+        Ils seront pris en compte au prochain passage automatique du scheduler,
+        ou via le bouton "Traiter maintenant" du tableau de bord.
+    </p>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    {% if success %}
+    <div class="alert alert-success">Fichier(s) déposé(s) : {{ success|join(", ") }}</div>
+    {% endif %}
+
+    <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
+        <label class="dropzone" id="dropzone" for="file-input">
+            <div class="dz-icon">⇩</div>
+            <div class="dz-text"><b>Cliquez pour choisir</b> ou glissez-déposez un ou plusieurs fichiers ici</div>
+            <div class="dz-hint">Fichiers .xml uniquement</div>
+        </label>
+        <input type="file" name="xml_file" id="file-input" accept=".xml" multiple required>
+
+        <div class="dz-selected" id="dz-selected">
+            <div id="dz-filelist" style="flex:1;"></div>
+            <button type="button" class="dz-remove" id="dz-remove">retirer</button>
+        </div>
+
+        <div class="actionbar">
+            <button type="submit" class="stampbtn">Déposer</button>
+        </div>
+    </form>
+</div>
+
+<script>
+(function() {
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+    const selectedBox = document.getElementById('dz-selected');
+    const filelistEl = document.getElementById('dz-filelist');
+    const removeBtn = document.getElementById('dz-remove');
+
+    function showSelected(files) {
+        if (!files || files.length === 0) {
+            selectedBox.classList.remove('show');
+            filelistEl.innerHTML = '';
+            return;
+        }
+        filelistEl.innerHTML = Array.from(files)
+            .map(f => `<div class="dz-filename">${f.name}</div>`)
+            .join('');
+        selectedBox.classList.add('show');
+    }
+
+    fileInput.addEventListener('change', () => {
+        showSelected(fileInput.files);
+    });
+
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropzone.addEventListener(evt, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.add('dragover');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+        dropzone.addEventListener(evt, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.remove('dragover');
+        });
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            fileInput.files = files;
+            showSelected(files);
+        }
+    });
+
+    removeBtn.addEventListener('click', () => {
+        fileInput.value = '';
+        showSelected(null);
+    });
+})();
+</script>
+{% endblock %}

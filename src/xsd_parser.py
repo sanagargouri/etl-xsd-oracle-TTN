@@ -30,7 +30,12 @@ class XSDParser:
         self._parse_root_element()
         self._build_tables()
         print(f"  → {len(self.tables)} tables à générer")
-        return self.tables
+        
+        # Construit le dictionnaire de correspondance type → balise XML
+        self.tag_map = self._build_tag_map()
+        print(f"  → {len(self.tag_map)} correspondances type→balise trouvées")
+        
+        return self.tables, self.tag_map  # ← retourne aussi tag_map
 
     def _parse_simple_types(self):
         for simple_type in self.root.findall(f".//{XS}simpleType[@name]"):
@@ -476,6 +481,37 @@ class XSDParser:
                     })
 
                 self.tables.append(table)
+
+    def _build_tag_map(self):
+        """
+        Construit un dictionnaire {type_name: xml_tag_name}
+        en cherchant dans le XSD quel nom de balise XML
+        correspond à chaque type complexe.
+        
+        Ex: "DtmDetailType" → "DateText"
+            "PartDetailType" → "PartnerDetails"
+            "MoaDetailsType" → "AmountDetails"
+        """
+        tag_map = {}
+
+        # Parcourt tous les éléments du XSD
+        for elem in self.root.findall(f".//{XS}element"):
+            type_ref = elem.get("type", "")
+            elem_name = elem.get("name", "")
+
+            if type_ref and elem_name and type_ref in self.complex_types:
+                # Si ce type n'a pas encore de nom de balise → on l'enregistre
+                if type_ref not in tag_map:
+                    tag_map[type_ref] = elem_name
+
+            # Gère aussi xs:alternative
+            for alt in elem.findall(f"{XS}alternative"):
+                alt_type = alt.get("type", "")
+                if alt_type and elem_name and alt_type in self.complex_types:
+                    if alt_type not in tag_map:
+                        tag_map[alt_type] = elem_name
+
+        return tag_map            
 
 
 # ---------------------------------------------------------------

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Historique{% endblock %}
+
+{% block content %}
+<h2 class="section">Historique des traitements</h2>
+
+<div style="display:flex; gap:10px; margin-bottom:18px; font-family:Arial,sans-serif; font-size:12.5px;">
+    <a href="/historique" class="badge {{ 'ok' if not statut_filtre else 'paused' }}">Tous</a>
+    <a href="/historique?statut=OK" class="badge {{ 'ok' if statut_filtre == 'OK' else 'paused' }}">OK</a>
+    <a href="/historique?statut=ERREUR" class="badge {{ 'wait' if statut_filtre == 'ERREUR' else 'paused' }}">Erreurs</a>
+</div>
+
+<table class="ledger">
+    <thead>
+        <tr>
+            <th>Fichier</th>
+            <th>Date</th>
+            <th>Statut</th>
+            <th>Lignes chargées</th>
+            <th>Durée</th>
+            <th>Erreur</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in entries %}
+        <tr>
+            <td class="flow-name">{{ entry.nom_fichier }}</td>
+            <td>{{ entry.date_traitement.strftime("%d/%m/%Y %H:%M:%S") }}</td>
+            <td>
+                {% if entry.statut == "OK" %}
+                    <span class="badge ok">OK</span>
+                {% else %}
+                    <span class="badge wait">Erreur</span>
+                {% endif %}
+            </td>
+            <td>{{ entry.lignes_chargees if entry.lignes_chargees is not none else "—" }}</td>
+            <td>{{ entry.duree_secondes ~ " s" if entry.duree_secondes is not none else "—" }}</td>
+            <td class="flow-sub">{{ entry.message_erreur or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" class="flow-sub">Aucune entrée pour ce filtre.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Tableau de bord{% endblock %}
+
+{% block content %}
+<div class="stamps">
+    <div class="stamp"><div class="n">{{ stats.fichiers_traites_24h }}</div><div class="l">Fichiers traités — 24h</div></div>
+    <div class="stamp"><div class="n red">{{ stats.en_attente }}</div><div class="l">En attente</div></div>
+    <div class="stamp"><div class="n">{{ stats.erreurs_24h }}</div><div class="l">Erreurs — 24h</div></div>
+    <div class="stamp"><div class="n">{{ stats.taux_conformite ~ "%" if stats.taux_conformite is not none else "—" }}</div><div class="l">Taux de conformité</div></div>
+</div>
+
+<div class="row">
+    <div>
+        <h2 class="section">Correspondance schéma → table</h2>
+        <div class="manifest">
+            {% if schema_summary %}
+            <div class="manifest-grid">
+                <div class="xsd-col">
+                    <div class="file-label"><span>{{ schema_summary.xsd_filename }}</span><span>source</span></div>
+                    <div class="node"><span class="tag">elt</span> {{ schema_summary.root_table }}</div>
+                    {% for col in schema_summary.root_columns %}
+                        {% if not col.is_pk %}
+                        <div class="node leaf"><span class="tag">elt</span> {{ col.name }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                <div class="bridge">
+                    <svg viewBox="0 0 70 150">
+                        <path d="M2 22 C40 22 30 40 68 40" stroke="#a3302b" stroke-width="1.5" fill="none"/>
+                        <path d="M2 55 C40 55 30 70 68 70" stroke="#a3302b" stroke-width="1.5" fill="none"/>
+                        <path d="M2 90 C40 90 30 100 68 100" stroke="#a3302b" stroke-width="1.5" fill="none"/>
+                        <path d="M2 122 C40 122 30 128 68 128" stroke="#a3302b" stroke-width="1.5" fill="none"/>
+                    </svg>
+                </div>
+                <div class="ora-col">
+                    <div class="file-label"><span>cible</span><span>oracle</span></div>
+                    <div class="node"><span class="tag">table</span> {{ schema_summary.root_table }}</div>
+                    {% for col in schema_summary.root_columns %}
+                        <div class="node"><span class="tag">col</span> {{ col.name }}{{ " (PK)" if col.is_pk else "" }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+            <p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:12px; margin-bottom:0;">
+                Table racine uniquement ({{ schema_summary.child_table_count }} table(s) enfant non affichée(s) ici) —
+                voir <a href="/tables-oracle" style="color:var(--red-dark);">Tables Oracle</a> pour la correspondance complète ({{ schema_summary.total_tables }} tables).
+            </p>
+            {% else %}
+            <p style="font-family:Arial,sans-serif; font-size:12.5px; color:var(--gray-600);">
+                Impossible de lire le schéma XSD configuré.
+            </p>
+            {% endif %}
+        </div>
+
+        <h2 class="section">Fichiers du lot</h2>
+        <table class="ledger">
+            <thead>
+                <tr><th>Fichier</th><th>Statut</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% if lot_files %}
+                    {% for f in lot_files %}
+                    <tr>
+                        <td><div class="flow-name">{{ f.nom_fichier }}</div></td>
+                        <td>
+                            {% if f.statut == "TERMINE" %}
+                                <span class="badge ok">Terminé</span>
+                            {% else %}
+                                <span class="badge wait">En attente</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if f.statut == "EN_ATTENTE" %}
+                            <form action="/retirer-du-lot" method="post" style="margin:0;">
+                                <input type="hidden" name="filename" value="{{ f.nom_fichier }}">
+                                <button type="submit" class="retirer-btn">Retirer du lot</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="color:var(--gray-600);">Aucun fichier en attente ni traité depuis le démarrage.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <div style="display:flex; gap:10px; margin-top:16px;">
+            <form action="/traiter-maintenant" method="post" style="flex:1;margin:0;">
+                <button type="submit" class="stampbtn outline" style="width:100%;">Traiter maintenant</button>
+            </form>
+            <form action="/scheduler/pause-reprise" method="post" style="flex:1;margin:0;">
+                <button type="submit" class="stampbtn" style="width:100%;">
+                    {{ "Mettre en pause" if status.actif else "Reprendre" }}
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <aside>
+        <div class="clock-card">
+            <form action="/scheduler/intervalle" method="post" class="interval-form">
+                <div class="cur-time">
+                    <input type="number" name="heures" min="0" value="{{ status.intervalle_heures }}" class="clock-input">
+                    <span class="unit-label">h</span>
+                    <input type="number" name="minutes" min="0" max="59" value="{{ status.intervalle_minutes_restantes }}" class="clock-input">
+                    <span class="unit-label">min</span>
+                </div>
+                <button type="submit" class="clock-submit">Modifier l'intervalle</button>
+            </form>
+            <div class="cur-date">{{ "SCHEDULER ACTIF" if status.actif else "SCHEDULER EN PAUSE" }}</div>
+            <div class="next">
+                Prochain lot&nbsp;:
+                <b>
+                    {% if status.prochaine_execution %}
+                        {{ status.prochaine_execution.strftime("%d/%m/%Y à %H:%M:%S") }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </b>
+            </div>
+        </div>
+
+        <h2 class="section">Journal des dépôts</h2>
+        <div class="log">
+            {% if recent_logs %}
+                {% for entry in recent_logs %}
+                <div class="log-item">
+                    <div class="log-dot {{ 'ok' if entry.statut == 'OK' else 'red' }}"></div>
+                    <div>
+                        {{ entry.nom_fichier }}
+                        {% if entry.statut == 'OK' %}
+                            — {{ entry.lignes_chargees }} ligne(s) chargée(s)
+                        {% else %}
+                            — {{ entry.message_erreur }}
+                        {% endif %}
+                        <span class="log-time">
+                            {{ entry.date_traitement.strftime("%d/%m %H:%M:%S") if entry.date_traitement else "" }}
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="log-item">
+                    <div class="log-dot ok"></div>
+                    <div>Aucun dépôt enregistré pour le moment<span class="log-time">—</span></div>
+                </div>
+            {% endif %}
+        </div>
+    </aside>
+</div>
+{% endblock %}

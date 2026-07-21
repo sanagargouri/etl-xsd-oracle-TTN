@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ETL{% endblock %} — Pipeline TTN</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app">
+
+        <header>
+            <div class="brandmark">
+                <!-- Remplace static/logo/logo-ttn.png par le logo officiel TTN.
+                     Si le fichier est absent, le sceau SVG de secours s'affiche à la place. -->
+                <img src="{{ url_for('static', filename='logo/logo.png') }}"
+                     alt="Logo TTN"
+                     class="ttn-logo"
+                     onerror="this.style.display='none'; document.getElementById('seal-fallback').style.display='block';">
+                <svg id="seal-fallback" class="seal" viewBox="0 0 100 100" style="display:none;">
+                    <circle cx="50" cy="50" r="47" fill="none" stroke="#232322" stroke-width="2"/>
+                    <path d="M50 8 A42 42 0 0 1 50 92" fill="none" stroke="#a3302b" stroke-width="2"/>
+                    <path d="M20 40 Q45 55 20 68" fill="none" stroke="#a3302b" stroke-width="6" stroke-linecap="round"/>
+                    <path d="M12 50 L88 50 M50 12 L50 88" stroke="#232322" stroke-width="0.5" opacity="0.4"/>
+                </svg>
+                <div class="brand-text">
+                    <div class="kicker">TTN · Tunisie TradeNet</div>
+                    <h1>Pipeline<span> ETL</span></h1>
+                </div>
+            </div>
+            <div class="doc-meta">
+                Environnement&nbsp;: <b>ORACLE-PROD-EDI</b>
+            </div>
+        </header>
+
+        <nav>
+            <a href="/" class="{% if request.path == '/' %}active{% endif %}">Tableau de bord</a>
+            <a href="/upload" class="{% if request.path == '/upload' %}active{% endif %}">Déposer un fichier</a>
+            <a href="/historique" class="{% if request.path == '/historique' %}active{% endif %}">Historique</a>
+            <a href="/tables-oracle" class="{% if request.path == '/tables-oracle' %}active{% endif %}">Tables Oracle</a>
+        </nav>
+
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer>
+            <span>Pipeline ETL · Environnement XSD → Oracle — Tunisie TradeNet</span>
+            <span>session sécurisée</span>
+        </footer>
+
+    </div>
+</body>
+</html>
