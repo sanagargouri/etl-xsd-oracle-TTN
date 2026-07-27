@@ -8,7 +8,7 @@ from data_loader import DataLoader
 from batch_loader import process_batch, print_batch_summary
 
 # --- Configuration à adapter si besoin ---
-XSD_PATH = r"data\xsd\facture_INVOIC_V1.8.8_withoutSig.xsd"
+XSD_PATH = r"data\xsd\tce.xsd"
 XML_FOLDER = r"data\xml\a_traiter"
 INTERVALLE_MINUTES = 5  # fréquence d'exécution du traitement
 

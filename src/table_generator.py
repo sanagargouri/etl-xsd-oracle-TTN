@@ -3,12 +3,6 @@ import oracledb
 
 class TableGenerator:
     def __init__(self, username, password, dsn):
-        """
-        Initialise la connexion Oracle.
-        username : nom d'utilisateur Oracle (ex: 'sana')
-        password : mot de passe
-        dsn      : adresse de connexion (ex: 'localhost:1521/orcl2121')
-        """
         self.username = username
         self.password = password
         self.dsn = dsn
@@ -16,12 +10,9 @@ class TableGenerator:
         self.cursor = None
 
     def connect(self):
-        """Ouvre la connexion à Oracle."""
         try:
             self.connection = oracledb.connect(
-                user=self.username,
-                password=self.password,
-                dsn=self.dsn
+                user=self.username, password=self.password, dsn=self.dsn
             )
             self.cursor = self.connection.cursor()
             print(f" Connecté à Oracle ({self.dsn})")
@@ -30,56 +21,85 @@ class TableGenerator:
             raise
 
     def disconnect(self):
-        """Ferme la connexion à Oracle."""
         if self.cursor:
             self.cursor.close()
         if self.connection:
             self.connection.close()
-        print("🔌 Déconnecté d'Oracle")
+        print("Déconnecté d'Oracle")
 
     def generate_ddl(self, table):
-        """
-        Génère le DDL (CREATE TABLE) pour une table donnée.
-        Reçoit un dictionnaire table du format produit par xsd_parser.py
-        """
         table_name = table["table_name"]
         columns = table["columns"]
-
-        # Construit la liste des colonnes
-        col_definitions = []
-        for col in columns:
-            col_def = f"    {col['name']} {col['sql_type']}"
-            col_definitions.append(col_def)
-
-        # Assemble le CREATE TABLE complet
-        ddl = f"CREATE TABLE {table_name} (\n"
-        ddl += ",\n".join(col_definitions)
-        ddl += "\n)"
-
+        col_definitions = [f"    {col['name']} {col['sql_type']}" for col in columns]
+        ddl = f"CREATE TABLE {table_name} (\n" + ",\n".join(col_definitions) + "\n)"
         return ddl
 
     def table_exists(self, table_name):
-        """
-        Vérifie si une table existe déjà dans Oracle.
-        Retourne True si elle existe, False sinon.
-        """
         self.cursor.execute(
             "SELECT COUNT(*) FROM user_tables WHERE table_name = :name",
             name=table_name.upper()
         )
-        count = self.cursor.fetchone()[0]
-        return count > 0
+        return self.cursor.fetchone()[0] > 0
 
-    def create_table(self, table, drop_if_exists=False):
+    def get_table_signature(self, table_name):
+        self.cursor.execute(
+            """
+            SELECT column_name, data_type
+            FROM user_tab_columns
+            WHERE table_name = :name
+            ORDER BY column_name
+            """,
+            name=table_name.upper()
+        )
+        return [(row[0], row[1]) for row in self.cursor.fetchall()]
+
+    def add_column_comments(self, table):
         """
-        Crée une table dans Oracle à partir du dictionnaire table.
-        
-        drop_if_exists : si True, supprime la table si elle existe déjà
-                         avant de la recréer
+        Ajoute un COMMENT ON COLUMN pour chaque colonne dont le nom a été
+        tronqué (full_name différent du nom réel de la colonne), avec le
+        chemin XML complet d'origine. Non destructif : ne modifie ni la
+        structure de la table, ni son contenu, ni le nom de la colonne
+        elle-même -- purement informatif, consultable via :
+            SELECT column_name, comments FROM user_col_comments
+            WHERE table_name = 'DOCUMENT';
+        Peut être appelé sans risque même sur une table déjà existante.
         """
         table_name = table["table_name"]
+        added = 0
 
-        # Vérifie si la table existe déjà
+        for col in table["columns"]:
+            xml_path = col.get("xml_path")
+            full_name = col.get("full_name")
+
+            # Aucune des deux infos disponible -> rien à documenter pour cette colonne
+            if not xml_path and not full_name:
+                continue
+
+            if xml_path:
+                display_name = " > ".join(xml_path)
+            else:
+                display_name = full_name
+
+            # Inutile de commenter si le nom n'a pas été tronqué du tout
+            if display_name.lower().replace("_", "") == col["name"].lower().replace("_", ""):
+                continue
+
+            comment = display_name.replace("'", "''")  # échappe les apostrophes SQL
+            try:
+                self.cursor.execute(
+                    f"COMMENT ON COLUMN {table_name}.{col['name']} IS '{comment}'"
+                )
+                added += 1
+            except oracledb.Error as e:
+                print(f"    Avertissement : impossible de commenter "
+                      f"{table_name}.{col['name']} : {e}")
+
+        if added:
+            self.connection.commit()
+            print(f"    {added} commentaire(s) de colonne ajouté(s) sur {table_name}")
+
+    def create_table(self, table, drop_if_exists=False):
+        table_name = table["table_name"]
         if self.table_exists(table_name):
             if drop_if_exists:
                 print(f"    Table {table_name} existe déjà → suppression...")
@@ -89,10 +109,9 @@ class TableGenerator:
                 print(f"    Table {table_name} existe déjà → ignorée")
                 return False
 
-        # Génère et exécute le DDL
         ddl = self.generate_ddl(table)
         print(f"   DDL généré pour {table_name} :")
-        print(f"     {ddl[:100]}...")  # affiche les 100 premiers caractères
+        print(f"     {ddl[:100]}...")
 
         try:
             self.cursor.execute(ddl)
@@ -104,22 +123,49 @@ class TableGenerator:
             print(f"     DDL complet :\n{ddl}")
             return False
 
+    def _sort_tables_by_depth(self, tables):
+        """
+        Trie les tables par profondeur croissante dans la hiérarchie
+        parent -> enfant (racine = 0, enfant direct = 1, petit-enfant = 2...),
+        pour garantir qu'une table n'est JAMAIS créée avant sa table parente
+        (indispensable pour que la contrainte FK "REFERENCES parent(...)"
+        trouve bien le parent déjà existant).
+
+        Avant ce correctif, l'ordre dépendait de l'ordre d'apparition dans
+        la liste 'tables', qui pour xsd_parser_tce.py place les tables
+        petites-filles AVANT leur table parente directe (elles sont
+        ajoutées pendant la construction récursive du parent, donc avant
+        que celui-ci soit lui-même ajouté) -> ORA-00942.
+        """
+        tables_index = {t["table_name"]: t for t in tables}
+        cache = {}
+
+        def depth(table_name, visited=None):
+            if visited is None:
+                visited = set()
+            if table_name in cache:
+                return cache[table_name]
+            if table_name in visited:
+                # Sécurité anti-boucle infinie en cas de cycle inattendu
+                return 0
+            visited.add(table_name)
+
+            table = tables_index.get(table_name)
+            parent_name = table.get("parent_table") if table else None
+            if not parent_name or parent_name not in tables_index:
+                d = 0
+            else:
+                d = 1 + depth(parent_name, visited)
+
+            cache[table_name] = d
+            return d
+
+        return sorted(tables, key=lambda t: depth(t["table_name"]))
+
     def create_all_tables(self, tables, drop_if_exists=False):
-        """
-        Crée toutes les tables dans le bon ordre
-        (les tables parentes avant les tables enfants).
-        
-        tables : liste de dictionnaires produite par xsd_parser.py
-        """
         print(f"\n🏗️  Création de {len(tables)} tables dans Oracle...")
 
-        # Trie les tables : d'abord celles sans parent (tables racines)
-        # puis celles avec parent (pour respecter les FK)
-        tables_sans_parent = [t for t in tables if "parent_table" not in t]
-        tables_avec_parent = [t for t in tables if "parent_table" in t]
-
-        # Ordre de création : racines d'abord, puis enfants
-        tables_ordonnees = tables_sans_parent + tables_avec_parent
+        tables_ordonnees = self._sort_tables_by_depth(tables)
 
         created = 0
         skipped = 0
@@ -130,11 +176,15 @@ class TableGenerator:
             if result is True:
                 created += 1
             elif result is False:
-                # Vérifie si c'était un skip ou une erreur
                 if self.table_exists(table["table_name"]):
                     skipped += 1
                 else:
                     errors += 1
+
+            # Ajoute/rafraîchit les commentaires de colonnes dans tous les
+            # cas (table neuve ou déjà existante) -- opération peu coûteuse
+            # et sans risque, purement documentaire.
+            self.add_column_comments(table)
 
         print(f"\nRésumé :")
         print(f"    {created} tables créées")
@@ -144,29 +194,21 @@ class TableGenerator:
         return created, skipped, errors
 
 
-# ---------------------------------------------------------------
-# TEST RAPIDE
-# ---------------------------------------------------------------
 if __name__ == "__main__":
     import sys
     sys.path.append("src")
     from xsd_parser import XSDParser
+    import config
 
     if len(sys.argv) < 2:
         print("Usage: python src/table_generator.py <chemin_vers_xsd>")
         sys.exit(1)
 
-    # Étape 1 : parser le XSD
-    print("=== ÉTAPE 1 : Parsing du XSD ===")
     parser = XSDParser(sys.argv[1])
     tables, tag_map = parser.parse()
-    
-    # Étape 2 : créer les tables dans Oracle
-    print("\n=== ÉTAPE 2 : Création des tables dans Oracle ===")
+
     generator = TableGenerator(
-        username="sana",
-        password="Oracle123",
-        dsn="localhost:1521/orcl2121"
+        username=config.DB_USERNAME, password=config.DB_PASSWORD, dsn=config.DB_DSN
     )
 
     try:

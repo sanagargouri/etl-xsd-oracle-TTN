@@ -30,12 +30,11 @@ class XSDParser:
         self._parse_root_element()
         self._build_tables()
         print(f"  → {len(self.tables)} tables à générer")
-        
-        # Construit le dictionnaire de correspondance type → balise XML
+
         self.tag_map = self._build_tag_map()
         print(f"  → {len(self.tag_map)} correspondances type→balise trouvées")
-        
-        return self.tables, self.tag_map  # ← retourne aussi tag_map
+
+        return self.tables, self.tag_map
 
     def _parse_simple_types(self):
         for simple_type in self.root.findall(f".//{XS}simpleType[@name]"):
@@ -96,6 +95,7 @@ class XSDParser:
                         "sql_type": "VARCHAR2(255)",
                         "nullable": (use != "required"),
                         "constraint": "" if use != "required" else " NOT NULL",
+                        "full_name": f"attr_{attr_name}",
                     })
             sequence = anon_type.find(f"{XS}sequence")
             if sequence is not None:
@@ -114,23 +114,13 @@ class XSDParser:
         print(f"  → Table racine créée : {root_name.upper()}")
 
     def _extract_type_info(self, node):
-        """
-        Extrait les informations d'un type complexe.
-        Gère deux cas :
-        - xs:sequence : sous-éléments classiques
-        - xs:simpleContent : contenu textuel + attributs
-        ex: <Amount currencyIdentifier="TND">2.540</Amount>
-        """
         fields = []
         children = []
 
-        # Cas 1 : xs:simpleContent (contenu textuel + attributs)
-        # ex: Amount, LocType, DtmDetailType...
         simple_content = node.find(f"{XS}simpleContent")
         if simple_content is not None:
             extension = simple_content.find(f"{XS}extension")
             if extension is not None:
-                # Le contenu textuel devient une colonne "value"
                 base_type = extension.get("base", "xs:string")
                 oracle_type = self._resolve_type_ref(base_type)
                 fields.append({
@@ -141,14 +131,12 @@ class XSDParser:
                     "is_list": False,
                     "nullable": True,
                 })
-                # Les attributs de l'extension deviennent aussi des colonnes
                 for attr in extension.findall(f"{XS}attribute"):
                     attr_info = self._extract_attribute_info(attr)
                     if attr_info:
                         fields.append(attr_info)
             return {"fields": fields, "children": children}
 
-        # Cas 2 : xs:sequence (sous-éléments classiques) — comportement d'origine
         for elem in node.findall(f".//{XS}element"):
             field_info = self._extract_element_info(elem)
             if field_info:
@@ -164,12 +152,7 @@ class XSDParser:
 
         return {"fields": fields, "children": children}
 
-
     def _extract_element_info(self, elem):
-        """
-        Extrait les infos d'un <xs:element> individuel.
-        Gère aussi les types anonymes avec xs:simpleContent.
-        """
         name = elem.get("name")
         type_ref = elem.get("type", "")
         min_occurs = int(elem.get("minOccurs", "1"))
@@ -181,8 +164,6 @@ class XSDParser:
         is_list = (max_occurs == "unbounded")
         is_nullable = (min_occurs == 0)
 
-        # Cas spécial : type anonyme avec xs:simpleContent
-        # ex: <xs:element name="Amount"><xs:complexType><xs:simpleContent>...
         anon_complex = elem.find(f"{XS}complexType")
         if anon_complex is not None:
             simple_content = anon_complex.find(f"{XS}simpleContent")
@@ -200,7 +181,6 @@ class XSDParser:
                         "nullable": is_nullable or is_list,
                     }
 
-        # Cas normal : type référencé explicitement
         is_complex = (
             type_ref in self.complex_types or
             type_ref.replace("xs:", "") not in TYPE_MAPPING
@@ -248,6 +228,14 @@ class XSDParser:
         return sql_type
 
     def _flatten_type(self, type_name, visited=None):
+        """
+        Aplati récursivement un type complexe en une liste de champs.
+        Chaque champ porte désormais aussi 'full_name' : le nom complet
+        AVANT troncature (ex: "PytFii_InstitutionIdentification_BranchIdentifier"),
+        utilisé par table_generator.py pour documenter via COMMENT ON COLUMN
+        la colonne Oracle réellement créée (souvent tronquée à 30 caractères),
+        sans changer le nom de colonne lui-même.
+        """
         if visited is None:
             visited = set()
         if type_name in visited:
@@ -258,26 +246,22 @@ class XSDParser:
         type_info = self.complex_types[type_name]
         flat_fields = []
         for field in type_info["fields"]:
-            flat_fields.append(field)
+            f = field.copy()
+            f["full_name"] = field["name"]
+            flat_fields.append(f)
         for child in type_info["children"]:
             if not child["is_list"]:
                 child_fields = self._flatten_type(child["type_ref"], visited.copy())
                 for cf in child_fields:
                     prefixed_field = cf.copy()
                     prefixed_field["name"] = f"{child['name'].lower()}_{cf['name']}"
+                    prefixed_field["full_name"] = f"{child['name']}_{cf.get('full_name', cf['name'])}"
                     flat_fields.append(prefixed_field)
         return flat_fields
-    
+
     def _find_parent_relationships(self, list_types, table_names):
-        """
-        Pour chaque type qui devient une table, trouve son ancêtre
-        le plus proche qui est AUSSI une table.
-        Si aucun ancêtre-table n'est trouvé, pointe vers TEIF (table racine).
-        """
-        # Étape 1 : construire la relation parent direct pour TOUS les types
         direct_parent = {}
 
-        # Depuis les types complexes nommés
         for complex_type in self.root.findall(f".//{XS}complexType[@name]"):
             parent_name = complex_type.get("name")
             for elem in complex_type.findall(f".//{XS}element"):
@@ -289,7 +273,6 @@ class XSDParser:
                     if alt_type and alt_type not in direct_parent:
                         direct_parent[alt_type] = parent_name
 
-        # Depuis l'élément racine (TEIF) — ses enfants directs pointent vers TEIF
         root_elem = self.root.find(f"{XS}element")
         if root_elem is not None:
             root_name = root_elem.get("name", "ROOT")
@@ -302,8 +285,6 @@ class XSDParser:
                         if child_type and child_type not in direct_parent:
                             direct_parent[child_type] = root_name
 
-        # Étape 2 : pour chaque type-table, remonter jusqu'au
-        # premier ancêtre qui est aussi une table
         parent_map = {}
 
         for type_name in list_types:
@@ -319,19 +300,16 @@ class XSDParser:
 
                 parent_table_name = parent.upper().replace("TYPE", "").strip("_")
 
-                # Est-ce que ce parent est lui-même une table ?
                 if parent in list_types or parent_table_name in table_names:
                     found_parent = parent
                     break
 
-                # Est-ce que c'est la racine TEIF ?
                 if parent == root_name:
                     found_parent = root_name
                     break
 
                 current = parent
 
-            # Si on n'a pas trouvé de parent-table, on pointe vers TEIF par défaut
             if found_parent is None and type_name != root_name:
                 found_parent = root_name
 
@@ -339,53 +317,36 @@ class XSDParser:
                 parent_map[type_name] = found_parent
 
         return parent_map
-    
+
     def _truncate_name(self, name, max_length=30, used_names=None):
-        """
-        Raccourcit un nom de colonne intelligemment :
-        - Garde le suffixe (nom du champ final) intact
-        - Raccourcit le préfixe si nécessaire
-        
-        Exemple :
-            pytfii_institutionidentification_branchidentifier
-            → pytfii_branchidentifier (préfixe raccourci)
-        """
         if len(name) <= max_length:
             truncated = name
         else:
-            # Découpe le nom en segments séparés par "_"
             parts = name.split("_")
-            
+
             if len(parts) >= 2:
-                # Garde toujours le dernier segment (nom du champ)
-                # et essaie d'ajouter des segments depuis la fin
-                result_parts = [parts[-1]]  # commence par le dernier
+                result_parts = [parts[-1]]
                 current_length = len(parts[-1])
-                
-                # Ajoute le premier segment (préfixe principal)
-                # s'il y a de la place
+
                 prefix = parts[0]
                 if current_length + len(prefix) + 1 <= max_length:
                     result_parts.insert(0, prefix)
                     current_length += len(prefix) + 1
-                
-                # Essaie d'ajouter des segments intermédiaires depuis la fin
+
                 for part in reversed(parts[1:-1]):
                     if current_length + len(part) + 1 <= max_length:
                         result_parts.insert(-1, part)
                         current_length += len(part) + 1
                     else:
                         break
-                
+
                 truncated = "_".join(result_parts)
             else:
-                # Pas de "_" → tronque simplement
                 truncated = name[:max_length]
 
         if used_names is None:
             return truncated
 
-        # Gestion des doublons
         original = truncated
         counter = 1
         while truncated in used_names:
@@ -395,7 +356,7 @@ class XSDParser:
 
         used_names.add(truncated)
         return truncated
-    
+
     def _build_tables(self):
         list_types = set()
         forced_tables = {
@@ -409,7 +370,6 @@ class XSDParser:
             "LinType",
         }
         list_types.update(forced_tables)
-        
 
         for elem in self.root.findall(f".//{XS}element"):
             max_occurs = elem.get("maxOccurs", "1")
@@ -424,15 +384,13 @@ class XSDParser:
 
         print(f"  → Types qui sont des listes : {list_types}")
 
-        # Noms des tables qui seront créées
         table_names = set()
         for tn, _ in self.complex_types.items():
             tname = tn.upper().replace("TYPE", "").strip("_")
             if tn in list_types:
                 table_names.add(tname)
-        table_names.add("TEIF")  # ajoute la table racine
+        table_names.add("TEIF")
 
-        # Construire le dictionnaire de parenté
         parent_map = self._find_parent_relationships(list_types, table_names)
         print(f"  → Relations parent-enfant : {parent_map}")
 
@@ -449,14 +407,12 @@ class XSDParser:
                     "children": type_info["children"],
                 }
 
-                # Colonne PK
                 table["columns"].append({
                     "name": f"id_{table_name.lower()}",
                     "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
                     "nullable": False,
                 })
 
-                # Colonne FK (seulement si ce type a un parent)
                 if type_name in parent_map:
                     parent_type = parent_map[type_name]
                     parent_table = parent_type.upper().replace("TYPE", "").strip("_")
@@ -468,7 +424,6 @@ class XSDParser:
                     })
                     table["parent_table"] = parent_table
 
-                # Colonnes issues des champs (avec troncature)
                 flat_fields = self._flatten_type(type_name)
                 for field in flat_fields:
                     nullable_str = "" if field["nullable"] else " NOT NULL"
@@ -478,52 +433,38 @@ class XSDParser:
                         "sql_type": field["oracle_type"] or "VARCHAR2(255)",
                         "nullable": field["nullable"],
                         "constraint": nullable_str,
+                        "full_name": field.get("full_name", field["name"]),
                     })
 
                 self.tables.append(table)
 
     def _build_tag_map(self):
-        """
-        Construit un dictionnaire {type_name: xml_tag_name}
-        en cherchant dans le XSD quel nom de balise XML
-        correspond à chaque type complexe.
-        
-        Ex: "DtmDetailType" → "DateText"
-            "PartDetailType" → "PartnerDetails"
-            "MoaDetailsType" → "AmountDetails"
-        """
         tag_map = {}
 
-        # Parcourt tous les éléments du XSD
         for elem in self.root.findall(f".//{XS}element"):
             type_ref = elem.get("type", "")
             elem_name = elem.get("name", "")
 
             if type_ref and elem_name and type_ref in self.complex_types:
-                # Si ce type n'a pas encore de nom de balise → on l'enregistre
                 if type_ref not in tag_map:
                     tag_map[type_ref] = elem_name
 
-            # Gère aussi xs:alternative
             for alt in elem.findall(f"{XS}alternative"):
                 alt_type = alt.get("type", "")
                 if alt_type and elem_name and alt_type in self.complex_types:
                     if alt_type not in tag_map:
                         tag_map[alt_type] = elem_name
 
-        return tag_map            
+        return tag_map
 
 
-# ---------------------------------------------------------------
-# TEST RAPIDE
-# ---------------------------------------------------------------
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
         print("Usage: python xsd_parser.py <chemin_vers_xsd>")
         sys.exit(1)
     parser = XSDParser(sys.argv[1])
-    tables = parser.parse()
+    tables, tag_map = parser.parse()
     print("\n=== RÉSULTAT ===")
     for table in tables:
         print(f"\nTable : {table['table_name']}")

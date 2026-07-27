@@ -25,8 +25,13 @@ def create_app():
     app.config["APP_START_TIME"] = datetime.now()
 
     # --- Scheduler : une seule instance, créée et démarrée ici ---
+    # Le type de chaque fichier XML (TEIF ou DOCUMENT/TCE, ou tout futur
+    # type détecté automatiquement) est déterminé individuellement par
+    # document_router.py -> on fournit les deux XSD connus, plus de
+    # xsd_path unique fixe.
     scheduler = SchedulerManager(
-        xsd_path=config.XSD_PATH,
+        xsd_teif_path=config.XSD_PATH_TEIF,
+        xsd_tce_path=config.XSD_PATH_TCE,
         xml_folder=config.XML_A_TRAITER,
         dossier_traites=config.XML_TRAITES,
         dossier_erreurs=config.XML_ERREURS,

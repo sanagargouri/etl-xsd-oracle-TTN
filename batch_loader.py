@@ -5,31 +5,31 @@ import time
 import shutil
 sys.path.append("src")
 
-from xsd_parser import XSDParser
+from document_router import DocumentRouter, UnknownDocumentTypeError
+from table_generator import TableGenerator
 from xml_extractor import XMLExtractor
 from data_loader import DataLoader
 
 
-def process_batch(xsd_path, xml_folder, loader, dossier_traites=None, dossier_erreurs=None):
+def process_batch(xsd_teif_path, xsd_tce_path, xml_folder, loader,
+                   dossier_traites=None, dossier_erreurs=None):
     """
     Traite tous les fichiers .xml d'un dossier :
-    pour chacun, extrait les données, les charge dans Oracle,
-    puis déplace le fichier vers 'traites' (succès) ou 'erreurs' (échec).
-    Ce déplacement évite de retraiter les mêmes fichiers au passage suivant
-    (indispensable une fois qu'on planifie l'exécution automatique).
+    pour chacun, DÉTECTE automatiquement le type de document (TEIF ou
+    DOCUMENT/TCE) à partir de sa racine XML, extrait les données selon
+    le XSD correspondant, les charge dans Oracle, puis déplace le fichier
+    vers 'traites' (succès) ou 'erreurs' (échec).
 
-    xsd_path        : chemin vers le fichier XSD (parsé une seule fois)
+    xsd_teif_path   : chemin vers le XSD de la facture TEIF
+    xsd_tce_path    : chemin vers tce.xsd (messages génériques DOCUMENT)
     xml_folder      : dossier contenant les fichiers XML à traiter
     loader          : instance de DataLoader déjà connectée à Oracle
     dossier_traites : dossier où déplacer les fichiers traités avec succès
-                       (par défaut : <parent de xml_folder>/traites)
     dossier_erreurs : dossier où déplacer les fichiers en échec
-                       (par défaut : <parent de xml_folder>/erreurs)
 
     Retourne un résumé : liste de résultats par fichier
     (nom, statut "OK"/"ERREUR", nombre de lignes chargées ou message d'erreur)
     """
-    # Détermine les dossiers de destination par défaut, à côté de xml_folder
     parent = os.path.dirname(xml_folder.rstrip("\\/"))
     if dossier_traites is None:
         dossier_traites = os.path.join(parent, "traites")
@@ -39,11 +39,17 @@ def process_batch(xsd_path, xml_folder, loader, dossier_traites=None, dossier_er
     os.makedirs(dossier_traites, exist_ok=True)
     os.makedirs(dossier_erreurs, exist_ok=True)
 
-    print(f"=== Parsing du XSD (une seule fois) ===")
-    parser = XSDParser(xsd_path)
-    tables, tag_map = parser.parse()
+    router = DocumentRouter(xsd_teif_path=xsd_teif_path, xsd_tce_path=xsd_tce_path)
 
-    # Liste tous les fichiers .xml du dossier (insensible à la casse)
+    # TableGenerator réutilise les mêmes identifiants Oracle que le loader,
+    # pour créer les tables manquantes à la volée (une seule fois par schéma).
+    table_generator = TableGenerator(
+        username=loader.username, password=loader.password, dsn=loader.dsn
+    )
+    table_generator.connection = loader.connection
+    table_generator.cursor = loader.cursor
+    schemas_ensured = set()
+
     xml_files = sorted([
         f for f in os.listdir(xml_folder)
         if f.lower().endswith(".xml")
@@ -60,6 +66,16 @@ def process_batch(xsd_path, xml_folder, loader, dossier_traites=None, dossier_er
         debut = time.time()
 
         try:
+            schema_key, tables, tag_map = router.resolve(xml_path)
+            print(f"    Type détecté : {schema_key}")
+
+            # Crée les tables Oracle manquantes pour ce schéma, une seule
+            # fois (les appels suivants sont des no-op silencieux car
+            # create_table() ignore les tables déjà existantes).
+            if schema_key not in schemas_ensured:
+                table_generator.create_all_tables(tables, drop_if_exists=False)
+                schemas_ensured.add(schema_key)
+
             extractor = XMLExtractor(xml_path, tables, tag_map)
             data = extractor.extract()
 
@@ -79,11 +95,27 @@ def process_batch(xsd_path, xml_folder, loader, dossier_traites=None, dossier_er
                 duree_secondes=duree,
             )
 
-            # Déplace le fichier traité pour ne pas le retraiter au prochain passage
             shutil.move(xml_path, os.path.join(dossier_traites, filename))
 
+        except UnknownDocumentTypeError as e:
+            duree = round(time.time() - debut, 2)
+            print(f"    Type de document non reconnu sur {filename} : {e}")
+            results.append({
+                "fichier": filename,
+                "statut": "ERREUR",
+                "erreur": str(e),
+            })
+            loader.log_result(
+                nom_fichier=filename,
+                statut="ERREUR",
+                lignes_chargees=0,
+                message_erreur=str(e),
+                duree_secondes=duree,
+            )
+            shutil.move(xml_path, os.path.join(dossier_erreurs, filename))
+            continue
+
         except Exception as e:
-            # Un fichier en erreur ne doit pas arrêter le traitement des autres
             duree = round(time.time() - debut, 2)
             print(f"    ERREUR sur {filename} : {e}")
             results.append({
@@ -100,7 +132,6 @@ def process_batch(xsd_path, xml_folder, loader, dossier_traites=None, dossier_er
                 duree_secondes=duree,
             )
 
-            # Déplace aussi le fichier en échec, pour ne pas boucler dessus indéfiniment
             shutil.move(xml_path, os.path.join(dossier_erreurs, filename))
             continue
 
@@ -131,23 +162,26 @@ def print_batch_summary(results):
 # TEST RAPIDE
 # ---------------------------------------------------------------
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python batch_loader.py <xsd> <dossier_xml>")
+    import config
+
+    if len(sys.argv) < 4:
+        print("Usage: python batch_loader.py <xsd_teif> <xsd_tce> <dossier_xml>")
         sys.exit(1)
 
-    xsd_path = sys.argv[1]
-    xml_folder = sys.argv[2]
+    xsd_teif_path = sys.argv[1]
+    xsd_tce_path = sys.argv[2]
+    xml_folder = sys.argv[3]
 
     loader = DataLoader(
-        username="sana",
-        password="Oracle123",
-        dsn="localhost:1521/orcl2121"
+        username=config.DB_USERNAME,
+        password=config.DB_PASSWORD,
+        dsn=config.DB_DSN,
     )
 
     try:
         loader.connect()
         loader.create_log_table()
-        results = process_batch(xsd_path, xml_folder, loader)
+        results = process_batch(xsd_teif_path, xsd_tce_path, xml_folder, loader)
         print_batch_summary(results)
     finally:
         loader.disconnect()

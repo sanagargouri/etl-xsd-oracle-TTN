@@ -1,0 +1,1147 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:include schemaLocation="TTNTypes.xsd"/>
+	<xs:element name="DOCUMENT">
+		<xs:annotation>
+			<xs:documentation>14042022 : Rétablissement "LIBELLE_STATUT" sous les blocs STATUT MC et STATUT OT (DOC et ART)</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:all>
+				<xs:element name="TYPE_DOCUMENT" id="ID4">
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:maxLength value="3"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:element>
+				<xs:element name="TYPE_MESSAGE" id="ID2">
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:maxLength value="6"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:element>
+				<xs:element name="ETAT" id="ID6">
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:maxLength value="3"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:element>
+				<xs:element name="REFERENCE_TTN">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NUMERO_DOSSIER" id="ID8" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NUMERO_MESSAGE" id="ID12">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NUMERO_DEMANDE" id="ID10">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="UTILISATEUR" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="ROUTAGE">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="EMETTEUR" id="ID14">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DESTINATAIRE" id="ID16">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="AUTHENTIFICATION" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CLE_AUTH" id="ID18" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="EXPORTATEUR" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NOM_PRENOM" id="ID60" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="175"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="RAISON_SOCIALE" id="ID70" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="175"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="CODE" id="ID80">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="ADRESSE_LIGNE1" id="ID90">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="210"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_NAISSANCE" id="ID81" minOccurs="0">
+								<xs:annotation>
+									<xs:documentation>DA TCE v28.1</xs:documentation>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="IMPORTATEUR" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NOM_PRENOM" id="ID100" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="175"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="RAISON_SOCIALE" id="ID110" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="175"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="CODE" id="ID120">
+								<xs:simpleType>
+									<xs:restriction base="xs:string"/>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="ADRESSE_LIGNE1" id="ID130">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="210"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_NAISSANCE" id="ID121" minOccurs="0">
+								<xs:annotation>
+									<xs:documentation>DA TCE v28.1</xs:documentation>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="NATURE_AUTORISATION">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_NATURE_AUTORISATION" id="ID40">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="3"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DESIGNATION" id="ID50" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="DECLARANT">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_TTN" id="ID915" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_SIGNATAIRE" id="ID140">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE" id="ID160">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TYPE_OPERATEUR" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE" id="ID131" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="LIBELLE" id="ID132">
+								<xs:simpleType>
+									<xs:restriction base="xs:string"/>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="DEPOT" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_ORGANISME_DEPOSITAIRE" id="ID170" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="6"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DESIGNATION" id="ID180" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NUMERO_DEPOT" id="ID190" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="6"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_DEPOT" id="ID200" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="DOMICILIATION" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_ORGANISME_DOMICILIATION" id="ID210" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="6"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="CODE_TTN_ORGANISME_DOMICILIATAIRE" id="ID917" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DESIGNATION" id="ID220" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NUMERO_DOMICILIATION" id="ID230" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="7"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NUMERO_COMPTE" id="ID245" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_DOMICILIATION" id="ID240" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="ORGANISME_DOMICILIATAIRE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NOM_SIGNATAIRE" id="ID250" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE" type="xs:string" id="ID270" minOccurs="0"/>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="REGIME_STATISTIQUE">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_REGIME_STATISTIQUE" id="ID275">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="3"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PAYS_PROVENANCE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_PAYS" id="ID280" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_PAYS" id="ID290" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PAYS_ACHAT" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_PAYS" id="ID300" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_PAYS" id="ID310" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PAYS_PREMIERE_DESTINATION" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_PAYS" id="ID320" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_PAYS" id="ID330" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PAYS_DESTINATION_DEFINITIVE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_PAYS" id="ID340" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_PAYS" id="ID350" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="MODE_LIVRAISON">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_INCOTERME" id="ID360">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="3"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DESIGNATION" id="ID370" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="140"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="REGLEMENT_FINANCIER">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="MODE_REGLEMENT" id="ID380">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DESIGNATION" id="ID390" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DELAI" id="ID400">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DEVISE" id="ID410">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="3"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="COURS_CONVERSION_LA_DEVISE">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="COURS_CONVERSION_DEVISE" type="xs:string" id="ID420"/>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="MONTANT_EN_DEVISE">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_DEVISE" id="ID430">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="3"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="PTFN" id="ID440">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="FOB" id="ID450">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="MONTANT_EN_DINARS">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="PTFN" id="ID460">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="FOB" id="ID470">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="PRIX_ACCORDEE" id="ID480" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="14"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="CONTRAT_COMMERCIAL" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NUMERO_CONTRAT" id="ID490" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE" id="ID500" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="FICHE_INFORMATION" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NUMERO_ENREGISTREMENT" id="ID920" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="7"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_ENREGISTREMENT" id="ID921" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_VALIDITE" id="ID922" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_VALIDITE_PROLONGEE" id="ID923" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="ENREGISTREMENT" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NUMERO_ENREGISTREMENT" id="ID550" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="IntType">
+										<xs:maxLength value="7"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_ENREGISTREMENT" id="ID560" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="VALIDITE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="DATE_DEBUT" id="ID570" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE_FIN" id="ID580" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="STATUT_MINISTERE_COMMERCE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_STATUT" id="ID630" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="LIBELLE_STATUT" type="xs:string" id="ID635" minOccurs="0">
+								<xs:annotation>
+									<xs:documentation>Utilisée seulement dans TCESP</xs:documentation>
+								</xs:annotation>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="MINISTERE_COMMERCE_OBSERVATIONS" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="MINISTERE_COMMERCE_OBSERVATION" minOccurs="0" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:all>
+										<xs:element name="CODE_OBSERVATION" id="ID640" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="17"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="LIBELLE" id="ID650" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="350"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:all>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="MINISTERE_DU_COMMERCE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NOM_ORGANISME" id="ID510" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_SIGNATAIRE" id="ID520" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE" id="ID540" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="ORGANISME_TECHNIQUE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NOM_ORGANISME" id="ID590" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_SIGNATAIRE" id="ID600" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE" id="ID620" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="STATUT_ORGANISME_TECHNIQUE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_STATUT" id="ID660" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="LIBELLE_STATUT" type="xs:string" id="ID665" minOccurs="0">
+								<xs:annotation>
+									<xs:documentation>Utilisée seulement dans TCESP</xs:documentation>
+								</xs:annotation>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="ORGANISME_TECHNIQUE_OBSERVATIONS" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="ORGANISME_TECHNIQUE_OBSERVATION" minOccurs="0" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:all>
+										<xs:element name="CODE_OBSERVATION" id="ID670" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="17"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="LIBELLE" id="ID680" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="350"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:all>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="STATUT_BANQUE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="CODE_STATUT" id="ID682" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="BANQUE_OBSERVATIONS" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="BANQUE_OBSERVATION" minOccurs="0" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:all>
+										<xs:element name="CODE_OBSERVATION" id="ID684" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="17"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="LIBELLE" id="ID686" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="350"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:all>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="BANQUE_CENTRALE" minOccurs="0">
+					<xs:complexType>
+						<xs:all>
+							<xs:element name="NOM_ORGANISME" id="ID690" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="70"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="NOM_SIGNATAIRE" id="ID700" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:maxLength value="35"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="DATE" id="ID720" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="DateType">
+										<xs:length value="8"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:all>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="ARTICLES">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="ARTICLE" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:all>
+										<xs:element name="NUMERO_ARTICLE" id="ID780">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="3"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="DESIGNATION" id="ID790">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="512"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="NUMERO_NOMENCLATURE" id="ID800">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="11"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="UNITE_MESURE" id="ID830">
+											<xs:simpleType>
+												<xs:restriction base="IntType">
+													<xs:maxLength value="2"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="QUANTITE" id="ID840">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="15"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="PRIX">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="PRIX_FACTURE_NET" id="ID850">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="14"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="PAYS_ORIGINE">
+											<xs:complexType>
+												<xs:all>
+													<xs:element name="CODE_PAYS" id="ID810">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="2"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+													<xs:element name="NOM_PAYS" id="ID820" minOccurs="0">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="70"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+												</xs:all>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="PAYS_EXPORTATION" minOccurs="0">
+											<xs:complexType>
+												<xs:all>
+													<xs:element name="CODE_PAYS" id="ID928">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="2"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+													<xs:element name="NOM_PAYS" id="ID929" minOccurs="0">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="70"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+												</xs:all>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="VALEUR_CFT" id="ID924" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="15"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="POIDS_NET" id="ID925" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="15"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="DATE_FABRICATION" type="DateType" id="ID926" minOccurs="0"/>
+										<xs:element name="DATE_ARRIVEE" type="DateType" id="ID927" minOccurs="0"/>
+										<xs:element name="STATUT_MINISTERE_COMMERCE" minOccurs="0">
+											<xs:complexType>
+												<xs:all>
+													<xs:element name="CODE_STATUT" id="ID860" minOccurs="0">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="2"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+													<xs:element name="LIBELLE_STATUT" type="xs:string" id="ID865" minOccurs="0">
+														<xs:annotation>
+															<xs:documentation>Utilisée seulement dans TCESP</xs:documentation>
+														</xs:annotation>
+													</xs:element>
+												</xs:all>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="MINISTERE_COMMERCE_OBSERVATIONS" minOccurs="0">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="MINISTERE_COMMERCE_OBSERVATION" minOccurs="0" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:all>
+																<xs:element name="CODE_OBSERVATION" id="ID870" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:string">
+																			<xs:maxLength value="17"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+																<xs:element name="LIBELLE" id="ID880" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:string">
+																			<xs:maxLength value="350"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+															</xs:all>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="STATUT_ORGANISME_TECHNIQUE" minOccurs="0">
+											<xs:complexType>
+												<xs:all>
+													<xs:element name="CODE_STATUT" id="ID890" minOccurs="0">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="2"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+													<xs:element name="LIBELLE_STATUT" type="xs:string" id="ID895" minOccurs="0">
+														<xs:annotation>
+															<xs:documentation>Utilisée seulement dans TCESP</xs:documentation>
+														</xs:annotation>
+													</xs:element>
+												</xs:all>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="ORGANISME_TECHNIQUE_OBSERVATIONS" minOccurs="0">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="ORGANISME_TECHNIQUE_OBSERVATION" minOccurs="0" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:all>
+																<xs:element name="CODE_OBSERVATION" id="ID900" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:string">
+																			<xs:maxLength value="17"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+																<xs:element name="LIBELLE" id="ID910" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:string">
+																			<xs:maxLength value="350"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+															</xs:all>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="STATUT_BANQUE" minOccurs="0">
+											<xs:complexType>
+												<xs:all>
+													<xs:element name="CODE_STATUT" id="ID912" minOccurs="0">
+														<xs:simpleType>
+															<xs:restriction base="xs:string">
+																<xs:maxLength value="2"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+												</xs:all>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="BANQUE_OBSERVATIONS" minOccurs="0">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="BANQUE_OBSERVATION" minOccurs="0" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:all>
+																<xs:element name="CODE_OBSERVATION" id="ID914" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:string">
+																			<xs:maxLength value="17"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+																<xs:element name="LIBELLE" id="ID916" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:string">
+																			<xs:maxLength value="350"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+															</xs:all>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+										</xs:element>
+									</xs:all>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PIECES_JOINTES" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="PIECES_JOINTE" minOccurs="0" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:all>
+										<xs:element name="TYPE_DOCUMENT" id="ID730" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="35"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="NUMERO_DOCUMENT" id="ID740" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="35"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="DATE_DOCUMENT" id="ID750" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="DateType">
+													<xs:length value="8"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="REFERENCE_FICHIER_JOINT" id="ID770" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="35"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="REFERENCE_BASE_IMAGE" id="ID760" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="35"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:all>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+			</xs:all>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

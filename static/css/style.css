@@ -149,7 +149,19 @@ h2.section::after{content:"";flex:1;height:1px;background:var(--sand-line);}
   padding:26px 28px;margin-bottom:28px;
   animation:fadeUp .55s ease .19s both;
 }
-.manifest-grid{display:grid;grid-template-columns:1fr 40px 1fr;align-items:center;}
+/* CORRIGÉ : align-items:center -> align-items:stretch
+   Avant, chaque colonne de la grille gardait sa hauteur naturelle de
+   contenu (align-items:center centre des éléments de hauteurs
+   différentes mais ne les étire jamais). Résultat : la colonne .bridge
+   (flèche) gardait une hauteur minuscule, sans rapport avec la hauteur
+   réelle de .xsd-col/.ora-col (qui peut contenir jusqu'à 80 lignes pour
+   le schéma DOCUMENT) -> son centrage interne n'avait plus aucun sens
+   visuel une fois la liste longue.
+   Avec stretch, .bridge s'étire désormais sur toute la hauteur réelle
+   de la ligne, et son propre "justify-content:center" interne centre
+   alors correctement la flèche au milieu, quelle que soit la longueur
+   de la liste affichée à gauche/droite. */
+.manifest-grid{display:grid;grid-template-columns:1fr 40px 1fr;align-items:stretch;}
 .xsd-col, .ora-col{font-family:'Inter', sans-serif;font-size:13px;}
 .node{
   border:1px solid var(--sand-line);background:var(--cream);

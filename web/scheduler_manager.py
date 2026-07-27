@@ -18,11 +18,12 @@ from batch_loader import process_batch
 JOB_ID = "etl_job"
 
 
-def run_etl_job(xsd_path, xml_folder, dossier_traites, dossier_erreurs,
+def run_etl_job(xsd_teif_path, xsd_tce_path, xml_folder, dossier_traites, dossier_erreurs,
                  db_username, db_password, db_dsn):
     """
     Exécute UN passage complet du pipeline ETL :
-    ouvre une connexion Oracle, traite le dossier a_traiter, ferme la connexion.
+    ouvre une connexion Oracle, traite le dossier a_traiter (le type de
+    chaque fichier est détecté automatiquement), ferme la connexion.
 
     Appelée à la fois par le scheduler (passage automatique) et par
     trigger_now (bouton "Traiter maintenant") — c'est le même code dans les
@@ -32,19 +33,18 @@ def run_etl_job(xsd_path, xml_folder, dossier_traites, dossier_erreurs,
     try:
         loader.connect()
         process_batch(
-            xsd_path=xsd_path,
+            xsd_teif_path=xsd_teif_path,
+            xsd_tce_path=xsd_tce_path,
             xml_folder=xml_folder,
             loader=loader,
             dossier_traites=dossier_traites,
             dossier_erreurs=dossier_erreurs,
         )
     finally:
-        # Le disconnect() se fait même si process_batch lève une exception,
-        # pour ne jamais laisser une connexion Oracle orpheline.
         loader.disconnect()
 
 
-def trigger_now(xsd_path, xml_folder, dossier_traites, dossier_erreurs,
+def trigger_now(xsd_teif_path, xsd_tce_path, xml_folder, dossier_traites, dossier_erreurs,
                  db_username, db_password, db_dsn):
     """
     Déclenchement manuel via le bouton "Traiter maintenant".
@@ -53,7 +53,8 @@ def trigger_now(xsd_path, xml_folder, dossier_traites, dossier_erreurs,
     remplacement.
     """
     run_etl_job(
-        xsd_path=xsd_path,
+        xsd_teif_path=xsd_teif_path,
+        xsd_tce_path=xsd_tce_path,
         xml_folder=xml_folder,
         dossier_traites=dossier_traites,
         dossier_erreurs=dossier_erreurs,
@@ -69,11 +70,12 @@ class SchedulerManager:
     pour web/routes.py : start, pause, resume, change_interval, get_status.
     """
 
-    def __init__(self, xsd_path, xml_folder, dossier_traites, dossier_erreurs,
+    def __init__(self, xsd_teif_path, xsd_tce_path, xml_folder, dossier_traites, dossier_erreurs,
                  db_username, db_password, db_dsn, interval_minutes):
         self._scheduler = BackgroundScheduler()
         self._job_kwargs = dict(
-            xsd_path=xsd_path,
+            xsd_teif_path=xsd_teif_path,
+            xsd_tce_path=xsd_tce_path,
             xml_folder=xml_folder,
             dossier_traites=dossier_traites,
             dossier_erreurs=dossier_erreurs,
@@ -101,11 +103,6 @@ class SchedulerManager:
         self._scheduler.resume_job(JOB_ID)
 
     def change_interval(self, hours=0, minutes=0):
-        """
-        Change l'intervalle du job planifié.
-        hours et minutes sont combinés en un seul intervalle
-        (ex: hours=1, minutes=30 → passage toutes les 1h30).
-        """
         total_minutes = (hours * 60) + minutes
         if total_minutes <= 0:
             raise ValueError("L'intervalle doit être supérieur à 0 minute.")
@@ -121,10 +118,6 @@ class SchedulerManager:
         trigger_now(**self._job_kwargs)
 
     def get_status(self):
-        """
-        Renvoie un dict prêt à afficher sur le dashboard :
-        actif/en pause, intervalle courant, prochaine exécution prévue.
-        """
         heures, minutes = divmod(self._interval_minutes, 60)
 
         job = self._scheduler.get_job(JOB_ID)
@@ -137,7 +130,6 @@ class SchedulerManager:
                 "prochaine_execution": None,
             }
 
-        # APScheduler met next_run_time à None quand le job est en pause.
         return {
             "actif": job.next_run_time is not None,
             "intervalle_minutes": self._interval_minutes,

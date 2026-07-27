@@ -1,7 +1,12 @@
-# Configuration locale (contient les identifiants Oracle en clair)
-config.py
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
 
-# Fichiers XML générés pendant les traitements (pas du code source)
+# --- Données XML traitées (pas du code source) ---
 data/xml/a_traiter/*
 data/xml/traites/*
 data/xml/erreurs/*
@@ -11,13 +16,30 @@ data/xml/retires/*
 !data/xml/erreurs/.gitkeep
 !data/xml/retires/.gitkeep
 
-# Python
-__pycache__/
-*.pyc
-
-# Fichiers de log générés à l'exécution
-history.log
+# --- Logs ---
+logs/*
+!logs/.gitkeep
 *.log
+history.log
 
-# Fichier accidentel repéré dans git status
-python
+# --- Scripts de diagnostic ponctuels (contenaient des identifiants en dur,
+#     pas destinés à rester dans le repo -- voir historique de conversation
+#     pour leur usage : vérification connexion Oracle, comparaison
+#     dashboard/DB) ---
+test_oracle.py
+verify_tables_oracle_page.py
+clean_document_tables.py
+
+# --- Ancien scheduler autonome, remplacé par app.py + web/scheduler_manager.py
+#     (cassé depuis le passage à la détection multi-schéma : appelle
+#     process_batch() avec l'ancienne signature à un seul xsd_path) ---
+scheduler.py
+
+# --- Éditeurs / OS ---
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# --- Divers ---
+*.bak

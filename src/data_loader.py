@@ -83,7 +83,6 @@ class DataLoader:
         message_erreur   : message d'erreur si statut == 'ERREUR', sinon None
         duree_secondes   : durée du traitement en secondes
         """
-        # Tronque le message d'erreur si besoin (colonne limitée à 4000 caractères)
         if message_erreur and len(message_erreur) > 4000:
             message_erreur = message_erreur[:3997] + "..."
 
@@ -98,36 +97,18 @@ class DataLoader:
         self.connection.commit()
 
     def _get_pk_column(self, table):
-        """
-        Trouve la colonne clé primaire d'une table
-        (celle générée automatiquement par Oracle).
-        """
         for col in table["columns"]:
             if "GENERATED ALWAYS AS IDENTITY" in col["sql_type"]:
                 return col["name"]
         return None
 
     def _get_fk_column(self, table):
-        """
-        Trouve la colonne clé étrangère d'une table (s'il y en a une).
-        Retourne None si la table n'a pas de parent (ex: TEIF).
-        """
         for col in table["columns"]:
             if "REFERENCES" in col["sql_type"]:
                 return col["name"]
         return None
 
     def _table_depth(self, table_name, tables_index, cache=None):
-        """
-        Calcule récursivement la profondeur d'une table dans la hiérarchie.
-        TEIF (racine, sans parent) = 0
-        PARTDETAIL (parent = TEIF) = 1
-        LOC (parent = PARTDETAIL)  = 2
-        etc.
-
-        cache : dictionnaire pour éviter de recalculer plusieurs fois
-                la même profondeur (mémoïsation)
-        """
         if cache is None:
             cache = {}
         if table_name in cache:
@@ -145,11 +126,6 @@ class DataLoader:
         return depth
 
     def _sort_tables_by_depth(self, tables):
-        """
-        Trie les tables par profondeur croissante (racine d'abord,
-        puis niveau 1, puis niveau 2...), pour garantir qu'un parent
-        est toujours chargé avant ses enfants.
-        """
         tables_index = {t["table_name"]: t for t in tables}
         cache = {}
         return sorted(
@@ -158,13 +134,6 @@ class DataLoader:
         )
 
     def load_all(self, tables, data):
-        """
-        Charge toutes les tables dans Oracle, dans le bon ordre
-        (parents avant enfants), en propageant les FK via id_mapping.
-
-        tables : liste de dictionnaires de définition de table (xsd_parser.py)
-        data   : dictionnaire {nom_table: [lignes]} (xml_extractor.py)
-        """
         sorted_tables = self._sort_tables_by_depth(tables)
 
         print(f"\nOrdre de chargement : {[t['table_name'] for t in sorted_tables]}")
@@ -180,17 +149,6 @@ class DataLoader:
         return total_inserted
 
     def _coerce_value(self, value, sql_type):
-        """
-        Convertit une valeur texte extraite du XML vers le type Python
-        adapté à la colonne Oracle cible.
-
-        Pourquoi : si on laisse une chaîne comme '2.540' pour une colonne
-        NUMBER, c'est Oracle qui doit la convertir — et cette conversion
-        dépend des paramètres régionaux de la session (NLS_NUMERIC_CHARACTERS),
-        ce qui peut faire échouer '.' comme séparateur décimal (ORA-01722).
-        En convertissant nous-mêmes en float côté Python (indépendant de la
-        locale), on évite ce problème une fois pour toutes.
-        """
         if value is None:
             return None
         if sql_type.startswith("NUMBER"):
@@ -202,15 +160,6 @@ class DataLoader:
         return value
 
     def load_table(self, table, rows):
-        """
-        Insère toutes les lignes d'une table dans Oracle.
-
-        table : dictionnaire de définition de table (format xsd_parser.py)
-        rows  : liste de lignes extraites (format xml_extractor.py),
-                chaque ligne contient '_local_id' et éventuellement '_parent_local_id'
-
-        Remplit self.id_mapping[table_name] au fur et à mesure.
-        """
         table_name = table["table_name"]
         pk_column = self._get_pk_column(table)
         fk_column = self._get_fk_column(table)
@@ -222,8 +171,6 @@ class DataLoader:
             print(f"   {table_name} : aucune ligne à charger")
             return 0
 
-        # Colonnes "normales" à insérer : toutes sauf la PK (auto-générée)
-        # et sauf la FK (gérée séparément, car sa valeur vient de id_mapping)
         normal_columns = [
             c for c in table["columns"]
             if c["name"] != pk_column and c["name"] != fk_column
@@ -236,15 +183,12 @@ class DataLoader:
             local_id = row.get("_local_id")
             parent_local_id = row.get("_parent_local_id")
 
-            # Construit la liste des colonnes et valeurs à insérer
-            # (avec conversion de type pour éviter les erreurs Oracle liées aux locales)
             insert_columns = [c["name"] for c in normal_columns]
             insert_values = [
                 self._coerce_value(row.get(c["name"]), c["sql_type"])
                 for c in normal_columns
             ]
 
-            # Ajoute la FK si cette table a un parent
             if fk_column and parent_table:
                 parent_real_id = self.id_mapping.get(parent_table, {}).get(parent_local_id)
                 if parent_real_id is None:
@@ -255,10 +199,7 @@ class DataLoader:
                 insert_columns.append(fk_column)
                 insert_values.append(parent_real_id)
 
-            # Construit les placeholders :1, :2, :3...
             placeholders = [f":{i+1}" for i in range(len(insert_columns))]
-
-            # Variable de sortie pour récupérer le vrai ID généré par Oracle
             new_id_var = self.cursor.var(int)
 
             sql = (
@@ -283,35 +224,30 @@ class DataLoader:
         return inserted
 
 
-# ---------------------------------------------------------------
-# TEST RAPIDE - ÉTAPE 1 : charge uniquement TEIF (pas de FK)
-# ---------------------------------------------------------------
 if __name__ == "__main__":
     import sys
     sys.path.append("src")
     from xsd_parser import XSDParser
     from xml_extractor import XMLExtractor
+    import config
 
     if len(sys.argv) < 3:
         print("Usage: python src/data_loader.py <xsd> <xml>")
         sys.exit(1)
 
-    # Étape 1 : parser le XSD
     print("=== ÉTAPE 1 : Parsing du XSD ===")
     parser = XSDParser(sys.argv[1])
     tables, tag_map = parser.parse()
 
-    # Étape 2 : extraire les données du XML
     print("\n=== ÉTAPE 2 : Extraction du XML ===")
     extractor = XMLExtractor(sys.argv[2], tables, tag_map)
     data = extractor.extract()
 
-    # Étape 3 : charger UNIQUEMENT la table TEIF dans Oracle
     print("\n=== ÉTAPE 3 : Chargement de TEIF dans Oracle ===")
     loader = DataLoader(
-        username="sana",
-        password="Oracle123",
-        dsn="localhost:1521/orcl2121"
+        username=config.DB_USERNAME,
+        password=config.DB_PASSWORD,
+        dsn=config.DB_DSN,
     )
 
     teif_table = next(t for t in tables if t["table_name"] == "TEIF")

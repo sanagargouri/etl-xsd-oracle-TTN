@@ -15,39 +15,39 @@
         <h2 class="section">Correspondance schéma → table</h2>
         <div class="manifest">
             {% if schema_summary %}
-            <div class="manifest-grid">
-                <div class="xsd-col">
-                    <div class="file-label"><span>{{ schema_summary.xsd_filename }}</span><span>source</span></div>
-                    <div class="node"><span class="tag">elt</span> {{ schema_summary.root_table }}</div>
-                    {% for col in schema_summary.root_columns %}
-                        {% if not col.is_pk %}
-                        <div class="node leaf"><span class="tag">elt</span> {{ col.name }}</div>
-                        {% endif %}
-                    {% endfor %}
+                {% for schema in schema_summary %}
+                <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; color:var(--gray-700); margin-bottom:6px;">
+                    {{ schema.label }}
+                </p>
+                <div class="manifest-grid" style="margin-bottom:20px;">
+                    <div class="xsd-col">
+                        <div class="file-label"><span>{{ schema.xsd_filename }}</span><span>source</span></div>
+                        <div class="node"><span class="tag">elt</span> {{ schema.root_table }}</div>
+                        {% for col in schema.root_columns %}
+                            {% if not col.is_pk %}
+                            <div class="node leaf"><span class="tag">elt</span> {{ col.name }}</div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <div class="bridge">
+                        <span style="font-size:20px; color:var(--bordeaux-deep);">→</span>
+                    </div>
+                    <div class="ora-col">
+                        <div class="file-label"><span>cible</span><span>oracle</span></div>
+                        <div class="node"><span class="tag">table</span> {{ schema.root_table }}</div>
+                        {% for col in schema.root_columns %}
+                            <div class="node"><span class="tag">col</span> {{ col.name }}{{ " (PK)" if col.is_pk else "" }}</div>
+                        {% endfor %}
+                    </div>
                 </div>
-                <div class="bridge">
-                    <svg viewBox="0 0 70 150">
-                        <path d="M2 22 C40 22 30 40 68 40" stroke="#a3302b" stroke-width="1.5" fill="none"/>
-                        <path d="M2 55 C40 55 30 70 68 70" stroke="#a3302b" stroke-width="1.5" fill="none"/>
-                        <path d="M2 90 C40 90 30 100 68 100" stroke="#a3302b" stroke-width="1.5" fill="none"/>
-                        <path d="M2 122 C40 122 30 128 68 128" stroke="#a3302b" stroke-width="1.5" fill="none"/>
-                    </svg>
-                </div>
-                <div class="ora-col">
-                    <div class="file-label"><span>cible</span><span>oracle</span></div>
-                    <div class="node"><span class="tag">table</span> {{ schema_summary.root_table }}</div>
-                    {% for col in schema_summary.root_columns %}
-                        <div class="node"><span class="tag">col</span> {{ col.name }}{{ " (PK)" if col.is_pk else "" }}</div>
-                    {% endfor %}
-                </div>
-            </div>
-            <p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:12px; margin-bottom:0;">
-                Table racine uniquement ({{ schema_summary.child_table_count }} table(s) enfant non affichée(s) ici) —
-                voir <a href="/tables-oracle" style="color:var(--red-dark);">Tables Oracle</a> pour la correspondance complète ({{ schema_summary.total_tables }} tables).
-            </p>
+                <p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:-12px; margin-bottom:20px;">
+                    Table racine uniquement ({{ schema.child_table_count }} table(s) enfant non affichée(s) ici) —
+                    voir <a href="/tables-oracle" style="color:var(--red-dark);">Tables Oracle</a> pour la correspondance complète ({{ schema.total_tables }} tables).
+                </p>
+                {% endfor %}
             {% else %}
             <p style="font-family:Arial,sans-serif; font-size:12.5px; color:var(--gray-600);">
-                Impossible de lire le schéma XSD configuré.
+                Impossible de lire les schémas XSD configurés.
             </p>
             {% endif %}
         </div>
