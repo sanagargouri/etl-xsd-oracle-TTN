@@ -151,6 +151,28 @@
         </script>
         {% endif %}
 
+        {% if table_comments %}
+        <div style="margin-bottom:20px;">
+            <span style="font-family:Arial,sans-serif; font-size:11px; font-weight:bold; color:var(--gray-700); text-transform:uppercase; letter-spacing:0.03em; display:block; margin-bottom:6px;">
+                Colonnes tronquées — chemin XML d'origine
+            </span>
+            <div style="background:var(--sand); border:1px solid var(--sand-line); border-radius:8px; padding:10px 14px; font-family:'JetBrains Mono', monospace; font-size:11.5px; color:var(--ink-soft);">
+                {% for col_name, comment in table_comments.items() %}
+                <div style="padding:3px 0;"><b style="color:var(--ink);">{{ col_name }}</b> ← {{ comment }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div style="display:flex; gap:10px; margin-bottom:16px;">
+            <a href="/tables-oracle/export?table={{ table_data.table_name }}&format=csv" class="retirer-btn" style="text-decoration:none;">
+                Exporter en CSV
+            </a>
+            <a href="/tables-oracle/export?table={{ table_data.table_name }}&format=sql" class="retirer-btn" style="text-decoration:none;">
+                Exporter en INSERT SQL
+            </a>
+        </div>
+
         <div class="data-table-scroll">
         <table class="data-table">
             <thead>

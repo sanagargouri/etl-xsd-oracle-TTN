@@ -157,6 +157,101 @@ def get_table_page(table_name, page=1):
         loader.disconnect()
 
 
+def get_table_comments(table_name):
+    """
+    Retourne les commentaires de colonnes (ajoutés par add_column_comments
+    dans table_generator.py pour documenter le chemin XML d'origine des
+    colonnes tronquées à 30 caractères). {} si aucun commentaire.
+    """
+    loader = _connect()
+    try:
+        loader.cursor.execute(
+            "SELECT column_name, comments FROM user_col_comments "
+            "WHERE table_name = :1 AND comments IS NOT NULL "
+            "ORDER BY column_name",
+            [table_name.upper()],
+        )
+        return {row[0]: row[1] for row in loader.cursor.fetchall()}
+    finally:
+        loader.disconnect()
+
+
+def get_all_rows_for_export(table_name):
+    """
+    Retourne TOUTES les lignes d'une table (pas paginé, contrairement à
+    get_table_page) pour export CSV/INSERT. table_name revalidé contre
+    user_tables avant insertion SQL, comme les autres fonctions du module.
+    """
+    loader = _connect()
+    try:
+        loader.cursor.execute(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
+            [table_name.upper()],
+        )
+        if loader.cursor.fetchone()[0] == 0:
+            return None
+
+        loader.cursor.execute(f"SELECT * FROM {table_name}")
+        columns = [col[0] for col in loader.cursor.description]
+        rows = loader.cursor.fetchall()
+        return {"table_name": table_name, "columns": columns, "rows": rows}
+    finally:
+        loader.disconnect()
+
+
+def build_csv_export(table_name):
+    """Génère le contenu CSV (texte) de toute la table."""
+    import csv
+    import io
+
+    data = get_all_rows_for_export(table_name)
+    if data is None:
+        return None
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(data["columns"])
+    for row in data["rows"]:
+        writer.writerow(["" if v is None else v for v in row])
+    return buffer.getvalue()
+
+
+def build_insert_export(table_name):
+    """
+    Génère des instructions INSERT INTO prêtes à coller/exécuter ailleurs,
+    une par ligne. Échappe les apostrophes SQL, laisse les nombres nus,
+    met NULL pour les valeurs absentes, formate les dates au format
+    Oracle TO_DATE explicite (évite toute ambiguïté de format régional).
+    """
+    import datetime
+
+    data = get_all_rows_for_export(table_name)
+    if data is None:
+        return None
+
+    columns_sql = ", ".join(data["columns"])
+    lines = [f"-- Export de {data['table_name']} -- {len(data['rows'])} ligne(s)\n"]
+
+    for row in data["rows"]:
+        values_sql = []
+        for value in row:
+            if value is None:
+                values_sql.append("NULL")
+            elif isinstance(value, (int, float)):
+                values_sql.append(str(value))
+            elif isinstance(value, (datetime.date, datetime.datetime)):
+                values_sql.append(f"TO_DATE('{value.strftime('%Y-%m-%d %H:%M:%S')}', 'YYYY-MM-DD HH24:MI:SS')")
+            else:
+                escaped = str(value).replace("'", "''")
+                values_sql.append(f"'{escaped}'")
+        lines.append(
+            f"INSERT INTO {data['table_name']} ({columns_sql}) VALUES "
+            f"({', '.join(values_sql)});"
+        )
+
+    return "\n".join(lines)
+
+
 def get_table_ddl(table_name):
     """
     Requête CREATE TABLE copiable, affichée à côté de chaque table dans

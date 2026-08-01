@@ -183,9 +183,11 @@ def tables_oracle():
 
     table_data = None
     table_ddl = None
+    table_comments = None
     if selected_table:
         table_data = table_browser.get_table_page(selected_table, page=page)
         table_ddl = table_browser.get_table_ddl(selected_table)
+        table_comments = table_browser.get_table_comments(selected_table)
 
     return render_template(
         "tables_oracle.html",
@@ -195,6 +197,42 @@ def tables_oracle():
         selected_table=selected_table,
         table_data=table_data,
         table_ddl=table_ddl,
+        table_comments=table_comments,
+    )
+
+
+@main_bp.route("/tables-oracle/export")
+def tables_oracle_export():
+    """
+    Télécharge le contenu complet d'une table (pas juste la page affichée)
+    en CSV ou en instructions INSERT INTO, selon ?format=csv|sql.
+    Le nom de table est revalidé côté table_browser avant toute requête SQL.
+    """
+    from flask import Response
+
+    table_name = request.args.get("table")
+    export_format = request.args.get("format", "csv")
+
+    if not table_name:
+        return redirect(url_for("main.tables_oracle"))
+
+    if export_format == "sql":
+        content = table_browser.build_insert_export(table_name)
+        mimetype = "text/plain"
+        extension = "sql"
+    else:
+        content = table_browser.build_csv_export(table_name)
+        mimetype = "text/csv"
+        extension = "csv"
+
+    if content is None:
+        return redirect(url_for("main.tables_oracle", table=table_name))
+
+    filename = f"{table_name}.{extension}"
+    return Response(
+        content,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
