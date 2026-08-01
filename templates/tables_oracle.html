@@ -3,9 +3,112 @@
 {% block title %}Tables Oracle{% endblock %}
 
 {% block content %}
+<style>
+    .data-table-scroll {
+        max-height: 640px;
+        overflow-y: auto;
+        overflow-x: auto;
+        border: 1px solid var(--sand-line);
+        border-radius: 10px;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-family: 'Inter', sans-serif;
+        font-size: 15px;
+    }
+
+    .data-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--terracotta);
+        color: #fff;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 12px;
+        padding: 14px 18px;
+        border-bottom: 2px solid var(--bordeaux-deep);
+        border-right: 1px solid rgba(255,255,255,0.18);
+        white-space: nowrap;
+    }
+
+    .data-table thead th:last-child {
+        border-right: none;
+    }
+
+    /* Colonne ID (première colonne) figée à gauche au défilement
+       horizontal, exactement comme l'en-tête reste figée verticalement.
+       z-index:3 sur la cellule coin (en-tête + première colonne) pour
+       qu'elle passe par-dessus les deux autres couches sticky. */
+    .data-table thead th:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 3;
+    }
+
+    .data-table tbody td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        background: var(--rose-bg);
+        font-weight: 600;
+        color: var(--bordeaux-deep);
+        border-right: 2px solid var(--terracotta);
+    }
+
+    .data-table tbody tr:hover td:first-child {
+        background: #edc7bc;
+    }
+
+    .data-table tbody td {
+        padding: 12px 18px;
+        border-right: 1px solid var(--sand-line);
+        border-bottom: 1px solid var(--sand-line);
+        white-space: nowrap;
+        color: var(--ink);
+    }
+
+    .data-table tbody td:last-child {
+        border-right: none;
+    }
+
+    .data-table tbody tr:hover td {
+        background: var(--rose-bg);
+    }
+
+    .data-table tbody tr:nth-child(even) td {
+        background: #fbf8f2;
+    }
+
+    .data-table tbody tr:nth-child(even) td:first-child {
+        background: var(--rose-bg);
+    }
+
+    .data-table tbody tr:nth-child(even):hover td {
+        background: var(--rose-bg);
+    }
+
+    .data-table tbody tr:nth-child(even):hover td:first-child {
+        background: #edc7bc;
+    }
+</style>
+
 <h2 class="section">Tables générées ({{ tables|length }})</h2>
 
-<form method="get" action="/tables-oracle" style="margin-bottom:26px;">
+<form method="get" action="/tables-oracle" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px;">
+    <select name="schema" class="freq-select" onchange="this.form.submit()" style="font-size:13px; padding:8px 10px;">
+        <option value="">— Tous les schémas —</option>
+        {% for s in schemas %}
+        <option value="{{ s.schema_key }}" {{ "selected" if schema_filter == s.schema_key else "" }}>
+            {{ s.label }} — {{ s.xsd_filename }}
+        </option>
+        {% endfor %}
+    </select>
+
     <select name="table" class="freq-select" onchange="this.form.submit()" style="font-size:13px; padding:8px 10px;">
         <option value="">— Choisir une table —</option>
         {% for t in tables %}
@@ -16,12 +119,40 @@
     </select>
 </form>
 
+{% if schema_filter and not schemas %}
+<p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:-10px; margin-bottom:16px;">
+    Aucune information de schéma disponible pour l'instant — toutes les tables sont affichées.
+</p>
+{% endif %}
+
 {% if selected_table %}
     {% if table_data %}
         <h2 class="section">{{ table_data.table_name }} — {{ table_data.total_rows }} ligne(s)</h2>
 
-        <div style="overflow-x:auto;">
-        <table class="ledger">
+        {% if table_ddl %}
+        <div style="margin-bottom:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-family:Arial,sans-serif; font-size:11px; font-weight:bold; color:var(--gray-700); text-transform:uppercase; letter-spacing:0.03em;">
+                    Requête CREATE TABLE
+                </span>
+                <button type="button" class="retirer-btn" onclick="copyDdl(this)">Copier</button>
+            </div>
+            <pre id="ddl-block" style="background:#1e1e1e; color:#d4d4d4; padding:14px 16px; border-radius:4px; overflow-x:auto; font-family:'JetBrains Mono', monospace; font-size:12px; line-height:1.5; margin:0;">{{ table_ddl }}</pre>
+        </div>
+        <script>
+        function copyDdl(btn) {
+            const text = document.getElementById('ddl-block').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const original = btn.innerText;
+                btn.innerText = "Copié !";
+                setTimeout(() => { btn.innerText = original; }, 1500);
+            });
+        }
+        </script>
+        {% endif %}
+
+        <div class="data-table-scroll">
+        <table class="data-table">
             <thead>
                 <tr>
                     {% for col in table_data.columns %}
@@ -45,11 +176,11 @@
 
         <div style="display:flex; gap:10px; align-items:center; margin-top:16px; font-family:Arial,sans-serif; font-size:12px; color:var(--gray-600);">
             {% if table_data.page > 1 %}
-            <a href="/tables-oracle?table={{ selected_table }}&page={{ table_data.page - 1 }}" class="retirer-btn">← Précédent</a>
+            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page - 1 }}" class="retirer-btn">← Précédent</a>
             {% endif %}
             <span>Page {{ table_data.page }} / {{ table_data.total_pages }}</span>
             {% if table_data.page < table_data.total_pages %}
-            <a href="/tables-oracle?table={{ selected_table }}&page={{ table_data.page + 1 }}" class="retirer-btn">Suivant →</a>
+            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page + 1 }}" class="retirer-btn">Suivant →</a>
             {% endif %}
         </div>
     {% else %}
@@ -59,7 +190,7 @@
     {% endif %}
 {% else %}
     <p style="font-family:Arial,sans-serif; color:var(--gray-600);">
-        Choisis une table ci-dessus pour consulter son contenu.
+        Choisis un schéma puis une table ci-dessus pour consulter son contenu et sa requête CREATE TABLE.
     </p>
 {% endif %}
 {% endblock %}

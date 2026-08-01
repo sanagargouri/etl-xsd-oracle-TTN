@@ -16,6 +16,7 @@ import config
 from web import stats
 from web import schema_info
 from web import table_browser
+from web import schema_manager
 
 main_bp = Blueprint("main", __name__)
 
@@ -170,7 +171,9 @@ def historique():
 
 @main_bp.route("/tables-oracle")
 def tables_oracle():
-    tables = table_browser.list_tables()
+    schema_filter = request.args.get("schema") or None
+    schemas = table_browser.list_schemas()
+    tables = table_browser.list_tables(schema_key=schema_filter)
 
     selected_table = request.args.get("table")
     try:
@@ -179,12 +182,47 @@ def tables_oracle():
         page = 1
 
     table_data = None
+    table_ddl = None
     if selected_table:
         table_data = table_browser.get_table_page(selected_table, page=page)
+        table_ddl = table_browser.get_table_ddl(selected_table)
 
     return render_template(
         "tables_oracle.html",
         tables=tables,
+        schemas=schemas,
+        schema_filter=schema_filter,
         selected_table=selected_table,
         table_data=table_data,
+        table_ddl=table_ddl,
     )
+
+
+@main_bp.route("/schemas", methods=["GET", "POST"])
+def schemas():
+    """
+    Page "Gérer les schémas" : crée les tables Oracle pour un XSD connu,
+    avec un nom personnalisé optionnel pour sa table racine. Ce choix est
+    ensuite réutilisé automatiquement par le scheduler pour tous les
+    futurs dépôts XML du même type (cf. batch_loader._load_custom_root_names).
+    """
+    message = None
+    error = None
+
+    if request.method == "POST":
+        schema_key = request.form.get("schema_key")
+        action = request.form.get("action")  # "create" ou "rename"
+
+        try:
+            if action == "rename":
+                new_name = (request.form.get("custom_name") or "").strip()
+                schema_manager.rename_schema_root(schema_key, new_name)
+                message = f"Table racine de {schema_key} renommée en {new_name.upper()}"
+            else:
+                schema_manager.create_tables_for_schema(schema_key)
+                message = f"Tables créées/vérifiées pour {schema_key}"
+        except Exception as e:
+            error = str(e)
+
+    xsd_list = schema_manager.list_available_xsd()
+    return render_template("schemas.html", xsd_list=xsd_list, message=message, error=error)

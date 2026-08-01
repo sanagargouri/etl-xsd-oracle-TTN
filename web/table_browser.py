@@ -8,12 +8,18 @@ autres modules de lecture (stats.py, schema_info.py).
 Générique : aucune colonne ni aucun nom de table n'est écrit en dur —
 tout est détecté dynamiquement (user_tables, cursor.description),
 pour que ça marche avec n'importe quel XSD, pas seulement les factures.
+
+Depuis l'ajout de ETL_SCHEMA_TABLES (traçabilité table -> XSD d'origine),
+ce module permet aussi de filtrer les tables par schéma et de récupérer
+le DDL exact d'une table (pour copier/recréer ailleurs).
 """
 
 import config
 from src.data_loader import DataLoader
 
 PAGE_SIZE = 25
+
+_TECHNICAL_TABLES = ("ETL_LOG", "ETL_SCHEMA_TABLES", "ETL_SCHEMA_CONFIG")
 
 
 def _connect():
@@ -26,24 +32,77 @@ def _connect():
     return loader
 
 
-def list_tables():
+def _has_table(loader, table_name):
+    loader.cursor.execute(
+        "SELECT COUNT(*) FROM user_tables WHERE table_name = :1", [table_name]
+    )
+    return loader.cursor.fetchone()[0] > 0
+
+
+_KNOWN_LABELS = {
+    "TEIF": "Facture TEIF",
+    "DOCUMENT": "Document TCE (TTN)",
+}
+
+
+def list_schemas():
     """
-    Liste les tables réellement présentes dans Oracle, avec leur nombre
-    de lignes. Exclut ETL_LOG (table technique de journalisation, pas
-    une table métier générée depuis le XSD).
+    Liste les schema_key distincts connus dans ETL_SCHEMA_TABLES, avec
+    leur fichier XSD d'origine et un label lisible, pour peupler la liste
+    déroulante de /tables-oracle. Retourne [] si la table n'existe pas
+    encore (avant le premier traitement de fichier).
     """
     loader = _connect()
     try:
+        if not _has_table(loader, "ETL_SCHEMA_TABLES"):
+            return []
         loader.cursor.execute(
-            "SELECT table_name FROM user_tables "
-            "WHERE table_name != 'ETL_LOG' ORDER BY table_name"
+            "SELECT DISTINCT schema_key, xsd_filename FROM ETL_SCHEMA_TABLES "
+            "ORDER BY schema_key"
         )
-        table_names = [row[0] for row in loader.cursor.fetchall()]
+        return [
+            {
+                "schema_key": r[0],
+                "xsd_filename": r[1],
+                "label": _KNOWN_LABELS.get(r[0], r[0].replace("AUTO_", "").title()),
+            }
+            for r in loader.cursor.fetchall()
+        ]
+    finally:
+        loader.disconnect()
+
+
+def list_tables(schema_key=None):
+    """
+    Liste les tables Oracle avec leur nombre de lignes.
+    Si schema_key est fourni et que ETL_SCHEMA_TABLES existe, ne retourne
+    que les tables associées à ce schéma. Sinon, comportement historique :
+    toutes les tables (hors tables techniques ETL_*).
+    """
+    loader = _connect()
+    try:
+        has_metadata = _has_table(loader, "ETL_SCHEMA_TABLES")
+
+        if schema_key and has_metadata:
+            loader.cursor.execute(
+                "SELECT table_name FROM ETL_SCHEMA_TABLES WHERE schema_key = :1 "
+                "ORDER BY table_name",
+                [schema_key],
+            )
+            table_names = [row[0] for row in loader.cursor.fetchall()]
+        else:
+            placeholders = ", ".join(f"'{t}'" for t in _TECHNICAL_TABLES)
+            loader.cursor.execute(
+                f"SELECT table_name FROM user_tables "
+                f"WHERE table_name NOT IN ({placeholders}) ORDER BY table_name"
+            )
+            table_names = [row[0] for row in loader.cursor.fetchall()]
 
         tables = []
         for name in table_names:
-            # Nom de table validé juste au-dessus (vient de user_tables,
-            # pas d'une entrée utilisateur) avant d'être inséré dans le SQL.
+            # Nom de table validé juste au-dessus (vient de user_tables ou
+            # de ETL_SCHEMA_TABLES, pas d'une entrée utilisateur directe)
+            # avant d'être inséré dans le SQL.
             loader.cursor.execute(f"SELECT COUNT(*) FROM {name}")
             count = loader.cursor.fetchone()[0]
             tables.append({"table_name": name, "row_count": count})
@@ -94,5 +153,39 @@ def get_table_page(table_name, page=1):
             "page": page,
             "total_pages": total_pages,
         }
+    finally:
+        loader.disconnect()
+
+
+def get_table_ddl(table_name):
+    """
+    Requête CREATE TABLE copiable, affichée à côté de chaque table dans
+    /tables-oracle, pour permettre de recréer la même structure ailleurs.
+    Utilise DBMS_METADATA.GET_DDL -> reflète toujours la structure réelle
+    actuelle de la table (même si modifiée après sa création initiale),
+    pas une version mise en cache/générée par le parseur.
+
+    table_name est revalidé contre user_tables avant insertion dans le
+    SQL, pour les mêmes raisons de sécurité que get_table_page().
+    """
+    loader = _connect()
+    try:
+        loader.cursor.execute(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
+            [table_name.upper()],
+        )
+        if loader.cursor.fetchone()[0] == 0:
+            return None
+
+        loader.cursor.execute(
+            "SELECT DBMS_METADATA.GET_DDL('TABLE', :1) FROM dual",
+            [table_name.upper()],
+        )
+        row = loader.cursor.fetchone()
+        if row is None:
+            return None
+        ddl = row[0]
+        ddl_text = ddl.read() if hasattr(ddl, "read") else str(ddl)
+        return ddl_text.strip()
     finally:
         loader.disconnect()

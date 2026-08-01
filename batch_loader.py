@@ -11,6 +11,27 @@ from xml_extractor import XMLExtractor
 from data_loader import DataLoader
 
 
+def _load_custom_root_names(loader):
+    """
+    Lit ETL_SCHEMA_CONFIG pour connaître les noms personnalisés déjà
+    choisis via la page "Gérer les schémas" (/schemas). Retourne {} si
+    la table n'existe pas encore (aucune personnalisation n'a jamais
+    été faite) -- comportement par défaut inchangé dans ce cas.
+    """
+    try:
+        loader.cursor.execute(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = 'ETL_SCHEMA_CONFIG'"
+        )
+        if loader.cursor.fetchone()[0] == 0:
+            return {}
+        loader.cursor.execute("SELECT schema_key, custom_root_name FROM ETL_SCHEMA_CONFIG")
+        return {row[0]: row[1] for row in loader.cursor.fetchall()}
+    except Exception as e:
+        print(f"[batch_loader] Avertissement : impossible de lire "
+              f"ETL_SCHEMA_CONFIG ({e}) -> noms automatiques utilisés")
+        return {}
+
+
 def process_batch(xsd_teif_path, xsd_tce_path, xml_folder, loader,
                    dossier_traites=None, dossier_erreurs=None):
     """
@@ -39,7 +60,15 @@ def process_batch(xsd_teif_path, xsd_tce_path, xml_folder, loader,
     os.makedirs(dossier_traites, exist_ok=True)
     os.makedirs(dossier_erreurs, exist_ok=True)
 
-    router = DocumentRouter(xsd_teif_path=xsd_teif_path, xsd_tce_path=xsd_tce_path)
+    # Charge les noms de table racine personnalisés (page /schemas) avant
+    # de router quoi que ce soit, pour que le dépôt automatique respecte
+    # exactement les mêmes noms que ceux choisis manuellement.
+    custom_root_names = _load_custom_root_names(loader)
+    router = DocumentRouter(
+        xsd_teif_path=xsd_teif_path,
+        xsd_tce_path=xsd_tce_path,
+        custom_root_names=custom_root_names,
+    )
 
     # TableGenerator réutilise les mêmes identifiants Oracle que le loader,
     # pour créer les tables manquantes à la volée (une seule fois par schéma).
@@ -73,7 +102,18 @@ def process_batch(xsd_teif_path, xsd_tce_path, xml_folder, loader,
             # fois (les appels suivants sont des no-op silencieux car
             # create_table() ignore les tables déjà existantes).
             if schema_key not in schemas_ensured:
-                table_generator.create_all_tables(tables, drop_if_exists=False)
+                if schema_key == "TEIF":
+                    xsd_used = xsd_teif_path
+                elif schema_key == "DOCUMENT":
+                    xsd_used = xsd_tce_path
+                else:
+                    xsd_used = None  # cas fallback AUTO_*, nom de fichier non essentiel ici
+
+                table_generator.create_all_tables(
+                    tables, drop_if_exists=False,
+                    schema_key=schema_key,
+                    xsd_filename=os.path.basename(xsd_used) if xsd_used else schema_key,
+                )
                 schemas_ensured.add(schema_key)
 
             extractor = XMLExtractor(xml_path, tables, tag_map)

@@ -23,6 +23,14 @@ Deux niveaux de détection :
    Le style structurel du XSD (complexType nommés vs imbrication anonyme
    façon tce.xsd) est détecté automatiquement pour choisir XSDParser ou
    XSDParserTCE.
+
+Noms de table personnalisés :
+   Un dict {schema_key: "NOUVEAU_NOM"} peut être fourni au constructeur
+   (custom_root_names), typiquement chargé depuis la table Oracle
+   ETL_SCHEMA_CONFIG par batch_loader.py avant d'instancier ce routeur.
+   Si présent pour un schema_key donné, la table RACINE (et uniquement
+   elle) est renommée avant d'être retournée -- les tables enfants
+   gardent toujours leur nom automatique.
 """
 
 import os
@@ -44,13 +52,16 @@ class UnknownDocumentTypeError(Exception):
 
 
 class DocumentRouter:
-    def __init__(self, xsd_teif_path, xsd_tce_path, xsd_fallback_dir=None):
+    def __init__(self, xsd_teif_path, xsd_tce_path, xsd_fallback_dir=None, custom_root_names=None):
         self.xsd_teif_path = xsd_teif_path
         self.xsd_tce_path = xsd_tce_path
         # Dossier scanné pour les types inconnus (par défaut : celui qui
         # contient déjà tce.xsd)
         self.xsd_fallback_dir = xsd_fallback_dir or os.path.dirname(xsd_tce_path)
         self._cache = {}  # {schema_key: (tables, tag_map)}
+        # {schema_key: "NOUVEAU_NOM"} -- chargé depuis ETL_SCHEMA_CONFIG
+        # par batch_loader.py avant de construire le routeur.
+        self.custom_root_names = custom_root_names or {}
 
     # -----------------------------------------------------------------
     # Lecture de la racine du XML
@@ -62,6 +73,47 @@ class DocumentRouter:
         except etree.XMLSyntaxError as e:
             raise UnknownDocumentTypeError(f"XML mal formé : {e}")
         raise UnknownDocumentTypeError("Fichier XML vide ou sans élément racine")
+
+    # -----------------------------------------------------------------
+    # Renommage de la table racine (noms personnalisés)
+    # -----------------------------------------------------------------
+    def _apply_custom_root_name(self, schema_key, tables, tag_map):
+        """
+        Renomme UNIQUEMENT la table racine (celle sans 'parent_table')
+        selon custom_root_names[schema_key], et répare les FK des tables
+        enfants directes qui la référencent dans leur sql_type
+        ("... REFERENCES ANCIEN_NOM(...)") et leur parent_table.
+        Les tables enfants gardent leur propre nom -- seule la racine change.
+        """
+        new_name = self.custom_root_names.get(schema_key)
+        if not new_name:
+            return tables, tag_map
+
+        root = next((t for t in tables if "parent_table" not in t), None)
+        if root is None:
+            return tables, tag_map
+
+        old_name = root["table_name"]
+        if old_name == new_name:
+            return tables, tag_map
+
+        root["table_name"] = new_name
+        # La colonne PK id_<ancien_nom> garde son nom historique -- seule
+        # la table change de nom, pas le schéma de colonnes.
+
+        for table in tables:
+            if table.get("parent_table") == old_name:
+                table["parent_table"] = new_name
+                for col in table["columns"]:
+                    if f"REFERENCES {old_name}(" in col.get("sql_type", ""):
+                        col["sql_type"] = col["sql_type"].replace(
+                            f"REFERENCES {old_name}(", f"REFERENCES {new_name}("
+                        )
+
+        if old_name in tag_map:
+            tag_map[new_name] = tag_map.pop(old_name)
+
+        return tables, tag_map
 
     # -----------------------------------------------------------------
     # Point d'entrée public
@@ -90,6 +142,7 @@ class DocumentRouter:
                   f"-> parsing de {os.path.basename(xsd_path)}")
             parser = parser_cls(xsd_path)
             tables, tag_map = parser.parse()
+            tables, tag_map = self._apply_custom_root_name(schema_key, tables, tag_map)
             self._cache[schema_key] = (tables, tag_map)
         tables, tag_map = self._cache[schema_key]
         return schema_key, tables, tag_map
@@ -139,6 +192,7 @@ class DocumentRouter:
 
         parser = parser_cls(xsd_path)
         tables, tag_map = parser.parse()
+        tables, tag_map = self._apply_custom_root_name(schema_key, tables, tag_map)
         self._cache[schema_key] = (tables, tag_map)
         return schema_key, tables, tag_map
 

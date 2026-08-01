@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Gérer les schémas{% endblock %}
+
+{% block content %}
+<h2 class="section">Gérer les schémas XSD</h2>
+
+<p style="font-family:Arial,sans-serif; font-size:12.5px; color:var(--gray-600); margin-bottom:20px;">
+    Crée les tables Oracle pour un schéma XSD connu, avec un nom personnalisé
+    optionnel pour la table racine (les tables enfants gardent toujours leur
+    nom automatique). Ce nom est réutilisé automatiquement pour tous les
+    prochains fichiers déposés de ce type, que ce soit via /schemas ou via
+    un dépôt normal traité par le scheduler.
+</p>
+
+{% if message %}
+<div style="background:#eaf6ea; border:1px solid #7cb87c; color:#2d5a2d; padding:10px 14px; border-radius:4px; font-family:Arial,sans-serif; font-size:12.5px; margin-bottom:16px;">
+    {{ message }}
+</div>
+{% endif %}
+
+{% if error %}
+<div style="background:#fbe9e9; border:1px solid #d98a8a; color:#7a2020; padding:10px 14px; border-radius:4px; font-family:Arial,sans-serif; font-size:12.5px; margin-bottom:16px;">
+    {{ error }}
+</div>
+{% endif %}
+
+<table class="ledger">
+    <thead>
+        <tr>
+            <th>Schéma</th>
+            <th>Fichier XSD</th>
+            <th>Nom personnalisé actuel</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for xsd in xsd_list %}
+        <tr>
+            <td>
+                <strong>{{ xsd.label }}</strong>
+                <div style="font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--gray-600); margin-top:2px;">
+                    {{ xsd.schema_key }}
+                </div>
+            </td>
+            <td>{{ xsd.xsd_filename }}</td>
+            <td>
+                {% if xsd.custom_name %}
+                    <span class="badge ok">{{ xsd.custom_name }}</span>
+                {% else %}
+                    <span style="color:var(--gray-600);">— (nom automatique)</span>
+                {% endif %}
+            </td>
+            <td>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <!-- Créer : ne touche jamais au nom, respecte juste le
+                         nom personnalisé déjà enregistré s'il y en a un. -->
+                    <form action="/schemas" method="post" style="margin:0;">
+                        <input type="hidden" name="schema_key" value="{{ xsd.schema_key }}">
+                        <input type="hidden" name="action" value="create">
+                        <button type="submit" class="stampbtn outline" style="white-space:nowrap;">
+                            Créer les tables
+                        </button>
+                    </form>
+
+                    <!-- Renommer : exige que la table existe déjà, exige un
+                         nom non vide, fait un vrai ALTER TABLE RENAME. -->
+                    <form action="/schemas" method="post" style="display:flex; gap:6px; margin:0;">
+                        <input type="hidden" name="schema_key" value="{{ xsd.schema_key }}">
+                        <input type="hidden" name="action" value="rename">
+                        <input
+                            type="text"
+                            name="custom_name"
+                            placeholder="Nouveau nom de table racine"
+                            required
+                            maxlength="30"
+                            style="font-family:Arial,sans-serif; font-size:12px; padding:4px 8px; border:1px solid var(--gray-400); border-radius:3px;"
+                        >
+                        <button type="submit" class="stampbtn" style="white-space:nowrap;">
+                            Renommer
+                        </button>
+                    </form>
+                </div>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="4" style="color:var(--gray-600);">Aucun XSD détecté.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:16px;">
+    « Créer les tables » ne renomme jamais rien — elle crée les tables
+    manquantes en respectant le nom déjà configuré s'il y en a un.
+    « Renommer » exige que la table existe déjà (crée-la d'abord si besoin)
+    et effectue un vrai renommage (ALTER TABLE RENAME) : les données et les
+    liens avec les tables enfants sont conservés. Un nom déjà pris par une
+    autre table entraîne un refus explicite plutôt qu'une écriture
+    silencieuse dans la mauvaise table.
+</p>
+{% endblock %}

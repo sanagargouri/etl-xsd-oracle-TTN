@@ -162,9 +162,82 @@ class TableGenerator:
 
         return sorted(tables, key=lambda t: depth(t["table_name"]))
 
-    def create_all_tables(self, tables, drop_if_exists=False):
+    # -----------------------------------------------------------------
+    # Métadonnées : quel XSD/schéma a produit quelle table (pour le
+    # filtre par XSD dans /tables-oracle) + config des noms personnalisés
+    # -----------------------------------------------------------------
+    def ensure_metadata_tables(self):
+        """Crée les tables techniques de métadonnées si absentes.
+        Non destructif, appelable à chaque démarrage sans risque."""
+        if not self.table_exists("ETL_SCHEMA_TABLES"):
+            self.cursor.execute("""
+                CREATE TABLE ETL_SCHEMA_TABLES (
+                    table_name    VARCHAR2(30) PRIMARY KEY,
+                    schema_key    VARCHAR2(50) NOT NULL,
+                    xsd_filename  VARCHAR2(255),
+                    date_creation TIMESTAMP DEFAULT SYSTIMESTAMP
+                )
+            """)
+            self.connection.commit()
+            print("   Table technique ETL_SCHEMA_TABLES créée")
+
+        if not self.table_exists("ETL_SCHEMA_CONFIG"):
+            self.cursor.execute("""
+                CREATE TABLE ETL_SCHEMA_CONFIG (
+                    schema_key       VARCHAR2(50) PRIMARY KEY,
+                    custom_root_name VARCHAR2(30) NOT NULL,
+                    xsd_filename     VARCHAR2(255),
+                    updated_at       TIMESTAMP DEFAULT SYSTIMESTAMP
+                )
+            """)
+            self.connection.commit()
+            print("   Table technique ETL_SCHEMA_CONFIG créée")
+
+    def register_table_schema(self, table_name, schema_key, xsd_filename):
+        """Enregistre/rafraîchit la correspondance table -> schéma d'origine.
+        MERGE pour rester idempotent (rejoué à chaque batch sans erreur).
+
+        IMPORTANT : binds NOMMÉS obligatoires ici, pas positionnels (:1,:2,:3).
+        Oracle traite le USING(...) d'un MERGE comme une sous-requête à part,
+        donc un :1 réutilisé entre USING et VALUES est compté comme 2
+        occurrences distinctes par python-oracledb -> DPY-4009 ("4 requises
+        mais 3 fournies"). Les binds nommés n'ont pas ce problème : chaque
+        occurrence du même nom est bien reconnue comme la même variable.
+        """
+        self.cursor.execute("""
+            MERGE INTO ETL_SCHEMA_TABLES t
+            USING (SELECT :table_name AS table_name FROM dual) src
+            ON (t.table_name = src.table_name)
+            WHEN NOT MATCHED THEN
+                INSERT (table_name, schema_key, xsd_filename)
+                VALUES (:table_name, :schema_key, :xsd_filename)
+        """, table_name=table_name, schema_key=schema_key, xsd_filename=xsd_filename)
+        self.connection.commit()
+
+    def get_table_ddl(self, table_name):
+        """Retourne le CREATE TABLE réel tel qu'Oracle le voit aujourd'hui
+        (via DBMS_METADATA), donc toujours fidèle même si la table a été
+        modifiée après sa création initiale."""
+        try:
+            self.cursor.execute(
+                "SELECT DBMS_METADATA.GET_DDL('TABLE', :1) FROM dual",
+                [table_name.upper()]
+            )
+            row = self.cursor.fetchone()
+            if row is None:
+                return None
+            ddl = row[0]
+            # LOB Oracle -> texte
+            ddl_text = ddl.read() if hasattr(ddl, "read") else str(ddl)
+            return ddl_text.strip()
+        except oracledb.Error as e:
+            print(f"   Impossible de récupérer le DDL de {table_name} : {e}")
+            return None
+
+    def create_all_tables(self, tables, drop_if_exists=False, schema_key=None, xsd_filename=None):
         print(f"\n🏗️  Création de {len(tables)} tables dans Oracle...")
 
+        self.ensure_metadata_tables()
         tables_ordonnees = self._sort_tables_by_depth(tables)
 
         created = 0
@@ -185,6 +258,11 @@ class TableGenerator:
             # cas (table neuve ou déjà existante) -- opération peu coûteuse
             # et sans risque, purement documentaire.
             self.add_column_comments(table)
+
+            # Enregistre la correspondance table -> schéma, que la table
+            # soit neuve ou déjà existante (idempotent).
+            if schema_key:
+                self.register_table_schema(table["table_name"], schema_key, xsd_filename)
 
         print(f"\nRésumé :")
         print(f"    {created} tables créées")
