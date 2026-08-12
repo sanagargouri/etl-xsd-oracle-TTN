@@ -1,4 +1,3 @@
-# table_generator.py
 import oracledb
 
 class TableGenerator:
@@ -123,6 +122,58 @@ class TableGenerator:
             print(f"     DDL complet :\n{ddl}")
             return False
 
+    def sync_missing_columns(self, table):
+        """
+        Si la table existe déjà en base, ajoute les colonnes présentes
+        dans le XSD fraîchement parsé mais absentes de la table Oracle
+        (ALTER TABLE ... ADD ...), sans jamais toucher aux colonnes déjà
+        existantes (pas de suppression, pas de changement de type).
+
+        C'est le complément indispensable du hash de détection de
+        changement de XSD (Problème A) : détecter que le XSD a changé
+        ne sert à rien si les nouvelles colonnes ne sont jamais créées.
+
+        Ne tente JAMAIS d'ajouter une colonne PK (IDENTITY) ou une FK
+        (REFERENCES) par ALTER TABLE -- ces colonnes structurantes ne
+        sont censées exister qu'à la création initiale de la table.
+
+        Retourne la liste des noms de colonnes effectivement ajoutées.
+        """
+        table_name = table["table_name"]
+
+        self.cursor.execute(
+            "SELECT column_name FROM user_tab_columns WHERE table_name = :name",
+            name=table_name.upper()
+        )
+        existing_columns = {row[0] for row in self.cursor.fetchall()}
+
+        added = []
+        for col in table["columns"]:
+            if col["name"].upper() in existing_columns:
+                continue
+
+            sql_type = col.get("sql_type", "")
+            if "GENERATED ALWAYS AS IDENTITY" in sql_type or "REFERENCES" in sql_type:
+                # Colonne structurante (clé primaire ou étrangère) -- on ne
+                # la rajoute jamais après coup par ALTER, trop risqué.
+                continue
+
+            try:
+                self.cursor.execute(
+                    f"ALTER TABLE {table_name} ADD {col['name']} {sql_type}"
+                )
+                added.append(col["name"])
+            except oracledb.Error as e:
+                print(f"    Impossible d'ajouter la colonne {col['name']} "
+                      f"à {table_name} : {e}")
+
+        if added:
+            self.connection.commit()
+            print(f"    {len(added)} nouvelle(s) colonne(s) ajoutée(s) à "
+                  f"{table_name} : {added}")
+
+        return added
+
     def _sort_tables_by_depth(self, tables):
         """
         Trie les tables par profondeur croissante dans la hiérarchie
@@ -168,7 +219,14 @@ class TableGenerator:
     # -----------------------------------------------------------------
     def ensure_metadata_tables(self):
         """Crée les tables techniques de métadonnées si absentes.
-        Non destructif, appelable à chaque démarrage sans risque."""
+        Non destructif, appelable à chaque démarrage sans risque.
+
+        Si ETL_SCHEMA_CONFIG existe déjà mais date d'avant l'ajout de la
+        colonne xsd_structure_hash (détection de changement de XSD,
+        Problème A), elle est ajoutée automatiquement par ALTER TABLE
+        ADD COLUMN -- exactement le même principe que sync_missing_columns,
+        appliqué ici à la table technique elle-même.
+        """
         if not self.table_exists("ETL_SCHEMA_TABLES"):
             self.cursor.execute("""
                 CREATE TABLE ETL_SCHEMA_TABLES (
@@ -184,14 +242,83 @@ class TableGenerator:
         if not self.table_exists("ETL_SCHEMA_CONFIG"):
             self.cursor.execute("""
                 CREATE TABLE ETL_SCHEMA_CONFIG (
-                    schema_key       VARCHAR2(50) PRIMARY KEY,
-                    custom_root_name VARCHAR2(30) NOT NULL,
-                    xsd_filename     VARCHAR2(255),
-                    updated_at       TIMESTAMP DEFAULT SYSTIMESTAMP
+                    schema_key         VARCHAR2(50) PRIMARY KEY,
+                    custom_root_name   VARCHAR2(30) NOT NULL,
+                    xsd_filename       VARCHAR2(255),
+                    xsd_structure_hash VARCHAR2(64),
+                    updated_at         TIMESTAMP DEFAULT SYSTIMESTAMP
                 )
             """)
             self.connection.commit()
             print("   Table technique ETL_SCHEMA_CONFIG créée")
+        else:
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_tab_columns
+                WHERE table_name = 'ETL_SCHEMA_CONFIG'
+                  AND column_name = 'XSD_STRUCTURE_HASH'
+            """)
+            if self.cursor.fetchone()[0] == 0:
+                self.cursor.execute(
+                    "ALTER TABLE ETL_SCHEMA_CONFIG ADD xsd_structure_hash VARCHAR2(64)"
+                )
+                self.connection.commit()
+                print("   Colonne xsd_structure_hash ajoutée à ETL_SCHEMA_CONFIG")
+
+        if not self.table_exists("ETL_SCHEMA_SUGGESTIONS"):
+            self.cursor.execute("""
+                CREATE TABLE ETL_SCHEMA_SUGGESTIONS (
+                    id                   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    source_file          VARCHAR2(255) NOT NULL,
+                    detected_root_tag    VARCHAR2(255),
+                    xml_sample           CLOB,
+                    suggested_schema_key VARCHAR2(50),
+                    confidence_score     NUMBER,
+                    justification        VARCHAR2(4000),
+                    proposed_structure   CLOB,
+                    status               VARCHAR2(20) DEFAULT 'pending',
+                    created_at           TIMESTAMP DEFAULT SYSTIMESTAMP,
+                    validated_by         VARCHAR2(100),
+                    validated_at         TIMESTAMP
+                )
+            """)
+            self.connection.commit()
+            print("   Table technique ETL_SCHEMA_SUGGESTIONS créée")
+        else:
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_tab_columns
+                WHERE table_name = 'ETL_SCHEMA_SUGGESTIONS'
+                  AND column_name = 'PROPOSED_STRUCTURE'
+            """)
+            if self.cursor.fetchone()[0] == 0:
+                self.cursor.execute(
+                    "ALTER TABLE ETL_SCHEMA_SUGGESTIONS ADD proposed_structure CLOB"
+                )
+                self.connection.commit()
+                print("   Colonne proposed_structure ajoutée à ETL_SCHEMA_SUGGESTIONS")
+
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_tab_columns
+                WHERE table_name = 'ETL_SCHEMA_SUGGESTIONS'
+                  AND column_name = 'DETECTED_ROOT_TAG'
+            """)
+            if self.cursor.fetchone()[0] == 0:
+                self.cursor.execute(
+                    "ALTER TABLE ETL_SCHEMA_SUGGESTIONS ADD detected_root_tag VARCHAR2(255)"
+                )
+                self.connection.commit()
+                print("   Colonne detected_root_tag ajoutée à ETL_SCHEMA_SUGGESTIONS")
+
+        if not self.table_exists("ETL_ROOT_ALIASES"):
+            self.cursor.execute("""
+                CREATE TABLE ETL_ROOT_ALIASES (
+                    root_tag             VARCHAR2(255) PRIMARY KEY,
+                    schema_key           VARCHAR2(50) NOT NULL,
+                    source_suggestion_id NUMBER,
+                    created_at           TIMESTAMP DEFAULT SYSTIMESTAMP
+                )
+            """)
+            self.connection.commit()
+            print("   Table technique ETL_ROOT_ALIASES créée")
 
     def register_table_schema(self, table_name, schema_key, xsd_filename):
         """Enregistre/rafraîchit la correspondance table -> schéma d'origine.
@@ -243,6 +370,7 @@ class TableGenerator:
         created = 0
         skipped = 0
         errors = 0
+        columns_synced = 0
 
         for table in tables_ordonnees:
             result = self.create_table(table, drop_if_exists=drop_if_exists)
@@ -251,6 +379,12 @@ class TableGenerator:
             elif result is False:
                 if self.table_exists(table["table_name"]):
                     skipped += 1
+                    # La table existait déjà : on vérifie si le XSD a
+                    # apporté de nouvelles colonnes à synchroniser
+                    # (complément du hash de détection de changement,
+                    # Problème A) -- purement additif, jamais destructif.
+                    added = self.sync_missing_columns(table)
+                    columns_synced += len(added)
                 else:
                     errors += 1
 
@@ -267,6 +401,8 @@ class TableGenerator:
         print(f"\nRésumé :")
         print(f"    {created} tables créées")
         print(f"     {skipped} tables ignorées (déjà existantes)")
+        if columns_synced:
+            print(f"    {columns_synced} nouvelle(s) colonne(s) synchronisée(s) au total")
         print(f"   {errors} erreurs")
 
         return created, skipped, errors

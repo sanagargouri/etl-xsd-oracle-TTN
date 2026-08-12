@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ElectronicInvoice>
+    <DocumentDates>
+        <Date type="issue">2026-08-11</Date>
+        <Date type="due">2026-09-11</Date>
+    </DocumentDates>
+
+    <Parties>
+        <Party role="seller">
+            <Name>Ma Societe Test SARL</Name>
+            <Identifier type="tax">1234567A</Identifier>
+            <Address>
+                <Street>12 rue de la Republique</Street>
+                <City>Tunis</City>
+                <PostalCode>1000</PostalCode>
+                <Country>TN</Country>
+            </Address>
+            <Contact>
+                <Phone>+21671000000</Phone>
+                <Email>contact@masociete.test</Email>
+            </Contact>
+        </Party>
+        <Party role="buyer">
+            <Name>Client Test SA</Name>
+            <Identifier type="tax">7654321B</Identifier>
+            <Address>
+                <Street>5 avenue Habib Bourguiba</Street>
+                <City>Sfax</City>
+                <PostalCode>3000</PostalCode>
+                <Country>TN</Country>
+            </Address>
+        </Party>
+    </Parties>
+
+    <LineItems>
+        <LineItem number="1">
+            <Description>Prestation de conseil</Description>
+            <Quantity>2</Quantity>
+            <UnitPrice>250.000</UnitPrice>
+            <TaxDetails>
+                <TaxRate>19</TaxRate>
+                <TaxAmount>95.000</TaxAmount>
+            </TaxDetails>
+        </LineItem>
+        <LineItem number="2">
+            <Description>Frais de deplacement</Description>
+            <Quantity>1</Quantity>
+            <UnitPrice>50.000</UnitPrice>
+            <TaxDetails>
+                <TaxRate>19</TaxRate>
+                <TaxAmount>9.500</TaxAmount>
+            </TaxDetails>
+        </LineItem>
+    </LineItems>
+
+    <MonetaryAmounts>
+        <Amount type="total_excl_tax">550.000</Amount>
+        <Amount type="total_tax">104.500</Amount>
+        <Amount type="total_incl_tax">654.500</Amount>
+    </MonetaryAmounts>
+
+    <PaymentTerms>
+        <PaymentMeans>bank_transfer</PaymentMeans>
+        <PaymentDueDate>2026-09-11</PaymentDueDate>
+        <BankAccount>TN59 1000 6035 0000 0000 0001</BankAccount>
+    </PaymentTerms>
+</ElectronicInvoice>

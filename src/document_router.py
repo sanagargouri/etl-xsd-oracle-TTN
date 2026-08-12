@@ -9,17 +9,27 @@ Deux niveaux de détection :
    - racine <TEIF>      -> XSDParser + XSD facture (fixe)
    - racine <DOCUMENT>  -> XSDParserTCE + tce.xsd (fixe)
    Ces deux cas sont testés en premier et ne dépendent d'aucune heuristique :
-   simple comparaison de nom de racine, comme avant.
+   simple comparaison de nom de racine, comme avant. AUCUN appel IA n'a
+   jamais lieu pour ces deux cas.
 
 2. CAS INCONNUS (fallback automatique, meilleur effort) :
    Si la racine du XML n'est ni TEIF ni DOCUMENT (un nouveau type de
    document arrivé un jour), on scanne tous les XSD présents dans
    data/xsd/ pour trouver celui dont l'élément racine porte le même nom.
    - Si UN SEUL XSD candidat correspond -> on l'utilise.
-   - Si AUCUN candidat -> erreur explicite (fichier vers erreurs/).
-   - Si PLUSIEURS candidats portent le même nom de racine -> on refuse
-     de deviner (fichier vers erreurs/ avec message explicite), plutôt
-     que de risquer de charger des données avec le mauvais schéma.
+   - Si PLUSIEURS candidats portent le même nom de racine -> on les
+     départage par score de similarité structurelle (Jaccard), et on
+     refuse de deviner si l'écart est trop faible entre les meilleurs
+     candidats (fichier vers erreurs/ avec message explicite).
+   - Si AUCUN candidat -> avant de rejeter, on tente un appel IA
+     (Gemini, gratuit) pour voir si le document ressemble malgré tout à
+     un schéma connu avec un vocabulaire de balises différent. La
+     suggestion IA n'est JAMAIS appliquée automatiquement : elle est
+     seulement enregistrée pour validation humaine dans /schemas
+     (table ETL_SCHEMA_SUGGESTIONS). Le fichier reste rejeté (vers
+     erreurs/) dans tous les cas -- seul le prochain fichier similaire,
+     une fois la suggestion validée par un opérateur, sera traité
+     automatiquement.
    Le style structurel du XSD (complexType nommés vs imbrication anonyme
    façon tce.xsd) est détecté automatiquement pour choisir XSDParser ou
    XSDParserTCE.
@@ -133,6 +143,18 @@ class DocumentRouter:
         if root_tag == "DOCUMENT":
             return self._resolve_known("DOCUMENT", self.xsd_tce_path, XSDParserTCE)
 
+        # --- Alias validé manuellement (racine différente confirmée
+        # équivalente à TEIF/DOCUMENT via une suggestion IA validée dans
+        # /schemas) : évite de repasser par l'IA à chaque fois pour un
+        # type de document déjà reconnu et confirmé une première fois. ---
+        alias_schema_key = self._check_root_alias(root_tag)
+        if alias_schema_key == "TEIF":
+            print(f"[document_router] Racine <{root_tag}> reconnue via alias validé -> TEIF")
+            return self._resolve_known("TEIF", self.xsd_teif_path, XSDParser)
+        if alias_schema_key == "DOCUMENT":
+            print(f"[document_router] Racine <{root_tag}> reconnue via alias validé -> DOCUMENT")
+            return self._resolve_known("DOCUMENT", self.xsd_tce_path, XSDParserTCE)
+
         # --- Cas inconnu : fallback automatique ---
         return self._resolve_fallback(root_tag, xml_path)
 
@@ -157,11 +179,17 @@ class DocumentRouter:
         candidates = self._find_xsd_candidates(root_tag)
 
         if not candidates:
+            # Avant de rejeter définitivement, on tente le fallback IA --
+            # gratuit (Gemini), et purement consultatif : la suggestion
+            # est enregistrée pour validation humaine dans /schemas, mais
+            # CE fichier reste rejeté dans tous les cas (vers erreurs/).
+            self._try_ai_suggestion(root_tag, xml_path)
             raise UnknownDocumentTypeError(
                 f"Racine XML inconnue : <{root_tag}>. Aucun XSD dans "
                 f"{self.xsd_fallback_dir} ne définit cet élément racine. "
                 f"Ajoutez le XSD correspondant dans ce dossier pour le "
-                f"prendre en charge."
+                f"prendre en charge. Une suggestion IA a été enregistrée "
+                f"si disponible -- consultez /schemas."
             )
 
         if len(candidates) > 1:
@@ -195,6 +223,79 @@ class DocumentRouter:
         tables, tag_map = self._apply_custom_root_name(schema_key, tables, tag_map)
         self._cache[schema_key] = (tables, tag_map)
         return schema_key, tables, tag_map
+
+    def _check_root_alias(self, root_tag):
+        """
+        Consulte ETL_ROOT_ALIASES pour voir si cette racine a déjà été
+        confirmée manuellement comme équivalente à TEIF ou DOCUMENT via
+        une suggestion IA validée dans /schemas. Retourne le schema_key
+        correspondant, ou None si aucun alias n'existe.
+
+        Connexion Oracle légère et indépendante (pas de dépendance à
+        TableGenerator ici pour éviter un import circulaire) -- toute
+        erreur (table absente, pas encore de connexion possible...) est
+        avalée : ce mécanisme est un bonus, jamais un point de blocage
+        pour le traitement normal des fichiers.
+        """
+        try:
+            import oracledb
+            import config
+            conn = oracledb.connect(
+                user=config.DB_USERNAME, password=config.DB_PASSWORD, dsn=config.DB_DSN,
+            )
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(*) FROM user_tables WHERE table_name = 'ETL_ROOT_ALIASES'"
+                )
+                if cursor.fetchone()[0] == 0:
+                    return None
+                cursor.execute(
+                    "SELECT schema_key FROM ETL_ROOT_ALIASES WHERE root_tag = :1",
+                    [root_tag],
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"[document_router] Vérification d'alias ignorée (erreur) : {e}")
+            return None
+
+    # -----------------------------------------------------------------
+    # Fallback IA (Gemini) -- purement consultatif, jamais de décision
+    # automatique. Ne fait jamais échouer le traitement du fichier : une
+    # erreur ici (pas de clé API, pas de réseau, quota dépassé...) est
+    # avalée et journalisée, le fichier est rejeté normalement comme
+    # avant l'ajout de cette fonctionnalité.
+    # -----------------------------------------------------------------
+    def _try_ai_suggestion(self, root_tag, xml_path):
+        try:
+            from schema_ai_fallback import (
+                suggest_schema_for_unknown_xml,
+                save_suggestion,
+                _extract_xml_sample,
+                AIFallbackUnavailable,
+            )
+        except ImportError:
+            print("[document_router] Module schema_ai_fallback introuvable "
+                  "-- fallback IA ignoré.")
+            return
+
+        try:
+            suggestion = suggest_schema_for_unknown_xml(xml_path)
+            xml_sample = _extract_xml_sample(xml_path)
+            save_suggestion(xml_path, xml_sample, suggestion, root_tag=root_tag)
+            print(f"[document_router] Suggestion IA enregistrée pour <{root_tag}> : "
+                  f"{suggestion.get('matched_schema')} "
+                  f"(confiance={suggestion.get('confidence'):.2f})")
+        except AIFallbackUnavailable as e:
+            print(f"[document_router] Fallback IA indisponible : {e}")
+        except Exception as e:
+            # Ne doit jamais faire planter le traitement du fichier --
+            # l'IA est un bonus, pas une dépendance critique.
+            print(f"[document_router] Erreur inattendue du fallback IA "
+                  f"(ignorée) : {e}")
 
     # -----------------------------------------------------------------
     # Désambiguïsation par signature structurelle (SHA + score Jaccard)

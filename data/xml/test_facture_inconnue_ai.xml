@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<InvoiceDocument>
+    <Header>
+        <InvoiceNumber>INV-2026-001</InvoiceNumber>
+        <IssueDate>2026-08-11</IssueDate>
+    </Header>
+    <Supplier>
+        <Name>Ma Societe Test</Name>
+        <TaxId>1234567A</TaxId>
+    </Supplier>
+    <Lines>
+        <Line>
+            <Description>Prestation de service</Description>
+            <Amount>500.00</Amount>
+        </Line>
+    </Lines>
+</InvoiceDocument>

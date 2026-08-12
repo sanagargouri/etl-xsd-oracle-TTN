@@ -42,4 +42,6 @@ Thumbs.db
 .DS_Store
 
 # --- Divers ---
-*.bak
+*.bak 
+# --- Secrets --- 
+config.py 

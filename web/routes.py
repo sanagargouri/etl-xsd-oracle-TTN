@@ -243,24 +243,79 @@ def schemas():
     avec un nom personnalisé optionnel pour sa table racine. Ce choix est
     ensuite réutilisé automatiquement par le scheduler pour tous les
     futurs dépôts XML du même type (cf. batch_loader._load_custom_root_names).
+
+    Actions possibles (form field "action") :
+        "create"      -> crée les tables manquantes, et synchronise les
+                         nouvelles colonnes si le XSD a changé depuis
+                         (ALTER TABLE ADD COLUMN automatique).
+        "rename"      -> renomme la table racine déjà existante.
+        "acknowledge" -> valide manuellement un changement de XSD détecté
+                         (met à jour le hash de référence en base, sans
+                         toucher aux tables elles-mêmes -- l'alerte
+                         disparaît, mais les colonnes ne sont synchronisées
+                         que via "create").
     """
     message = None
     error = None
 
     if request.method == "POST":
         schema_key = request.form.get("schema_key")
-        action = request.form.get("action")  # "create" ou "rename"
+        action = request.form.get("action")  # "create", "rename", "acknowledge",
+                                              # "validate_suggestion" ou "reject_suggestion"
 
         try:
             if action == "rename":
                 new_name = (request.form.get("custom_name") or "").strip()
                 schema_manager.rename_schema_root(schema_key, new_name)
                 message = f"Table racine de {schema_key} renommée en {new_name.upper()}"
+
+            elif action == "acknowledge":
+                xsd_list = {x["schema_key"]: x["xsd_path"] for x in schema_manager.list_available_xsd()}
+                xsd_path = xsd_list.get(schema_key)
+                if not xsd_path:
+                    raise ValueError(f"Schéma inconnu : {schema_key}")
+                schema_manager.acknowledge_schema_change(schema_key, xsd_path)
+                message = (
+                    f"Nouvelle structure de {schema_key} validée. "
+                    f"Pense à cliquer sur « Créer / Mettre à jour les tables » "
+                    f"si de nouvelles colonnes doivent être ajoutées."
+                )
+
+            elif action == "validate_suggestion":
+                suggestion_id = int(request.form.get("suggestion_id"))
+                result = schema_manager.validate_suggestion(suggestion_id)
+                if result["alias_created"] and result["file_requeued"]:
+                    message = (
+                        "Suggestion IA validée. Cette racine sera désormais reconnue "
+                        "automatiquement, et le fichier source a été replacé dans "
+                        "a_traiter/ pour être retraité."
+                    )
+                elif result["alias_created"]:
+                    message = (
+                        "Suggestion IA validée. Cette racine sera désormais reconnue "
+                        "automatiquement (le fichier source n'a pas pu être retrouvé "
+                        "dans erreurs/ pour être retraité automatiquement)."
+                    )
+                else:
+                    message = "Suggestion IA validée."
+
+            elif action == "reject_suggestion":
+                suggestion_id = int(request.form.get("suggestion_id"))
+                schema_manager.reject_suggestion(suggestion_id)
+                message = "Suggestion IA rejetée."
+
             else:
                 schema_manager.create_tables_for_schema(schema_key)
-                message = f"Tables créées/vérifiées pour {schema_key}"
+                message = f"Tables créées/mises à jour pour {schema_key}"
         except Exception as e:
             error = str(e)
 
     xsd_list = schema_manager.list_available_xsd()
-    return render_template("schemas.html", xsd_list=xsd_list, message=message, error=error)
+    pending_suggestions = schema_manager.list_pending_suggestions()
+    return render_template(
+        "schemas.html",
+        xsd_list=xsd_list,
+        pending_suggestions=pending_suggestions,
+        message=message,
+        error=error,
+    )
