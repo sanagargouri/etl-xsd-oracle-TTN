@@ -27,9 +27,30 @@ class TableGenerator:
         print("Déconnecté d'Oracle")
 
     def generate_ddl(self, table):
+        """
+        Génère le CREATE TABLE.
+
+        Deux cas :
+        - Clé simple : la colonne PK porte déjà "PRIMARY KEY" dans son
+          sql_type (inline), comme avant.
+        - Clé composite naturelle (table["primary_key"] = [col1, col2]) :
+          aucune colonne individuelle ne porte "PRIMARY KEY" -- on ajoute
+          une contrainte de table CONSTRAINT ... PRIMARY KEY (col1, col2)
+          à la fin du DDL. Cas de ARTICLE (numero_dossier, numero_article),
+          PIECES_JOINTE (numero_dossier, reference_base_image), etc.
+        """
         table_name = table["table_name"]
         columns = table["columns"]
         col_definitions = [f"    {col['name']} {col['sql_type']}" for col in columns]
+
+        composite_pk = table.get("primary_key")
+        if composite_pk:
+            pk_cols = ", ".join(composite_pk)
+            constraint_name = f"PK_{table_name}"[:30]
+            col_definitions.append(
+                f"    CONSTRAINT {constraint_name} PRIMARY KEY ({pk_cols})"
+            )
+
         ddl = f"CREATE TABLE {table_name} (\n" + ",\n".join(col_definitions) + "\n)"
         return ddl
 
@@ -53,16 +74,6 @@ class TableGenerator:
         return [(row[0], row[1]) for row in self.cursor.fetchall()]
 
     def add_column_comments(self, table):
-        """
-        Ajoute un COMMENT ON COLUMN pour chaque colonne dont le nom a été
-        tronqué (full_name différent du nom réel de la colonne), avec le
-        chemin XML complet d'origine. Non destructif : ne modifie ni la
-        structure de la table, ni son contenu, ni le nom de la colonne
-        elle-même -- purement informatif, consultable via :
-            SELECT column_name, comments FROM user_col_comments
-            WHERE table_name = 'DOCUMENT';
-        Peut être appelé sans risque même sur une table déjà existante.
-        """
         table_name = table["table_name"]
         added = 0
 
@@ -70,7 +81,6 @@ class TableGenerator:
             xml_path = col.get("xml_path")
             full_name = col.get("full_name")
 
-            # Aucune des deux infos disponible -> rien à documenter pour cette colonne
             if not xml_path and not full_name:
                 continue
 
@@ -79,11 +89,10 @@ class TableGenerator:
             else:
                 display_name = full_name
 
-            # Inutile de commenter si le nom n'a pas été tronqué du tout
             if display_name.lower().replace("_", "") == col["name"].lower().replace("_", ""):
                 continue
 
-            comment = display_name.replace("'", "''")  # échappe les apostrophes SQL
+            comment = display_name.replace("'", "''")
             try:
                 self.cursor.execute(
                     f"COMMENT ON COLUMN {table_name}.{col['name']} IS '{comment}'"
@@ -123,23 +132,8 @@ class TableGenerator:
             return False
 
     def sync_missing_columns(self, table):
-        """
-        Si la table existe déjà en base, ajoute les colonnes présentes
-        dans le XSD fraîchement parsé mais absentes de la table Oracle
-        (ALTER TABLE ... ADD ...), sans jamais toucher aux colonnes déjà
-        existantes (pas de suppression, pas de changement de type).
-
-        C'est le complément indispensable du hash de détection de
-        changement de XSD (Problème A) : détecter que le XSD a changé
-        ne sert à rien si les nouvelles colonnes ne sont jamais créées.
-
-        Ne tente JAMAIS d'ajouter une colonne PK (IDENTITY) ou une FK
-        (REFERENCES) par ALTER TABLE -- ces colonnes structurantes ne
-        sont censées exister qu'à la création initiale de la table.
-
-        Retourne la liste des noms de colonnes effectivement ajoutées.
-        """
         table_name = table["table_name"]
+        composite_pk_cols = set(table.get("primary_key") or [])
 
         self.cursor.execute(
             "SELECT column_name FROM user_tab_columns WHERE table_name = :name",
@@ -153,9 +147,9 @@ class TableGenerator:
                 continue
 
             sql_type = col.get("sql_type", "")
-            if "GENERATED ALWAYS AS IDENTITY" in sql_type or "REFERENCES" in sql_type:
-                # Colonne structurante (clé primaire ou étrangère) -- on ne
-                # la rajoute jamais après coup par ALTER, trop risqué.
+            if ("GENERATED ALWAYS AS IDENTITY" in sql_type
+                    or "REFERENCES" in sql_type
+                    or col["name"] in composite_pk_cols):
                 continue
 
             try:
@@ -175,19 +169,6 @@ class TableGenerator:
         return added
 
     def _sort_tables_by_depth(self, tables):
-        """
-        Trie les tables par profondeur croissante dans la hiérarchie
-        parent -> enfant (racine = 0, enfant direct = 1, petit-enfant = 2...),
-        pour garantir qu'une table n'est JAMAIS créée avant sa table parente
-        (indispensable pour que la contrainte FK "REFERENCES parent(...)"
-        trouve bien le parent déjà existant).
-
-        Avant ce correctif, l'ordre dépendait de l'ordre d'apparition dans
-        la liste 'tables', qui pour xsd_parser_tce.py place les tables
-        petites-filles AVANT leur table parente directe (elles sont
-        ajoutées pendant la construction récursive du parent, donc avant
-        que celui-ci soit lui-même ajouté) -> ORA-00942.
-        """
         tables_index = {t["table_name"]: t for t in tables}
         cache = {}
 
@@ -197,7 +178,6 @@ class TableGenerator:
             if table_name in cache:
                 return cache[table_name]
             if table_name in visited:
-                # Sécurité anti-boucle infinie en cas de cycle inattendu
                 return 0
             visited.add(table_name)
 
@@ -213,20 +193,7 @@ class TableGenerator:
 
         return sorted(tables, key=lambda t: depth(t["table_name"]))
 
-    # -----------------------------------------------------------------
-    # Métadonnées : quel XSD/schéma a produit quelle table (pour le
-    # filtre par XSD dans /tables-oracle) + config des noms personnalisés
-    # -----------------------------------------------------------------
     def ensure_metadata_tables(self):
-        """Crée les tables techniques de métadonnées si absentes.
-        Non destructif, appelable à chaque démarrage sans risque.
-
-        Si ETL_SCHEMA_CONFIG existe déjà mais date d'avant l'ajout de la
-        colonne xsd_structure_hash (détection de changement de XSD,
-        Problème A), elle est ajoutée automatiquement par ALTER TABLE
-        ADD COLUMN -- exactement le même principe que sync_missing_columns,
-        appliqué ici à la table technique elle-même.
-        """
         if not self.table_exists("ETL_SCHEMA_TABLES"):
             self.cursor.execute("""
                 CREATE TABLE ETL_SCHEMA_TABLES (
@@ -321,16 +288,6 @@ class TableGenerator:
             print("   Table technique ETL_ROOT_ALIASES créée")
 
     def register_table_schema(self, table_name, schema_key, xsd_filename):
-        """Enregistre/rafraîchit la correspondance table -> schéma d'origine.
-        MERGE pour rester idempotent (rejoué à chaque batch sans erreur).
-
-        IMPORTANT : binds NOMMÉS obligatoires ici, pas positionnels (:1,:2,:3).
-        Oracle traite le USING(...) d'un MERGE comme une sous-requête à part,
-        donc un :1 réutilisé entre USING et VALUES est compté comme 2
-        occurrences distinctes par python-oracledb -> DPY-4009 ("4 requises
-        mais 3 fournies"). Les binds nommés n'ont pas ce problème : chaque
-        occurrence du même nom est bien reconnue comme la même variable.
-        """
         self.cursor.execute("""
             MERGE INTO ETL_SCHEMA_TABLES t
             USING (SELECT :table_name AS table_name FROM dual) src
@@ -342,9 +299,6 @@ class TableGenerator:
         self.connection.commit()
 
     def get_table_ddl(self, table_name):
-        """Retourne le CREATE TABLE réel tel qu'Oracle le voit aujourd'hui
-        (via DBMS_METADATA), donc toujours fidèle même si la table a été
-        modifiée après sa création initiale."""
         try:
             self.cursor.execute(
                 "SELECT DBMS_METADATA.GET_DDL('TABLE', :1) FROM dual",
@@ -354,7 +308,6 @@ class TableGenerator:
             if row is None:
                 return None
             ddl = row[0]
-            # LOB Oracle -> texte
             ddl_text = ddl.read() if hasattr(ddl, "read") else str(ddl)
             return ddl_text.strip()
         except oracledb.Error as e:
@@ -379,22 +332,13 @@ class TableGenerator:
             elif result is False:
                 if self.table_exists(table["table_name"]):
                     skipped += 1
-                    # La table existait déjà : on vérifie si le XSD a
-                    # apporté de nouvelles colonnes à synchroniser
-                    # (complément du hash de détection de changement,
-                    # Problème A) -- purement additif, jamais destructif.
                     added = self.sync_missing_columns(table)
                     columns_synced += len(added)
                 else:
                     errors += 1
 
-            # Ajoute/rafraîchit les commentaires de colonnes dans tous les
-            # cas (table neuve ou déjà existante) -- opération peu coûteuse
-            # et sans risque, purement documentaire.
             self.add_column_comments(table)
 
-            # Enregistre la correspondance table -> schéma, que la table
-            # soit neuve ou déjà existante (idempotent).
             if schema_key:
                 self.register_table_schema(table["table_name"], schema_key, xsd_filename)
 
@@ -411,14 +355,14 @@ class TableGenerator:
 if __name__ == "__main__":
     import sys
     sys.path.append("src")
-    from xsd_parser import XSDParser
+    from xsd_parser_tce import XSDParserTCE
     import config
 
     if len(sys.argv) < 2:
         print("Usage: python src/table_generator.py <chemin_vers_xsd>")
         sys.exit(1)
 
-    parser = XSDParser(sys.argv[1])
+    parser = XSDParserTCE(sys.argv[1])
     tables, tag_map = parser.parse()
 
     generator = TableGenerator(
