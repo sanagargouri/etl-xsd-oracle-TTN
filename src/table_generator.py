@@ -1,5 +1,6 @@
 import oracledb
 
+
 class TableGenerator:
     def __init__(self, username, password, dsn):
         self.username = username
@@ -27,22 +28,23 @@ class TableGenerator:
         print("Déconnecté d'Oracle")
 
     def generate_ddl(self, table):
-        """
-        Génère le CREATE TABLE.
-
-        Deux cas :
-        - Clé simple : la colonne PK porte déjà "PRIMARY KEY" dans son
-          sql_type (inline), comme avant.
-        - Clé composite naturelle (table["primary_key"] = [col1, col2]) :
-          aucune colonne individuelle ne porte "PRIMARY KEY" -- on ajoute
-          une contrainte de table CONSTRAINT ... PRIMARY KEY (col1, col2)
-          à la fin du DDL. Cas de ARTICLE (numero_dossier, numero_article),
-          PIECES_JOINTE (numero_dossier, reference_base_image), etc.
-        """
         table_name = table["table_name"]
         columns = table["columns"]
-        col_definitions = [f"    {col['name']} {col['sql_type']}" for col in columns]
+        
+        # Ignore les pseudo-colonnes FK composite (is_fk_constraint)
+        col_definitions = []
+        fk_constraints = []
+        
+        for col in columns:
+            if col.get("is_fk_constraint"):
+                # C'est une pseudo-colonne pour stocker la contrainte FK
+                # Extrait la contrainte et l'ajoute séparément
+                fk_constraints.append(f"    {col['sql_type']}")
+                continue
+            
+            col_definitions.append(f"    {col['name']} {col['sql_type']}")
 
+        # Ajoute la PK composite
         composite_pk = table.get("primary_key")
         if composite_pk:
             pk_cols = ", ".join(composite_pk)
@@ -50,6 +52,9 @@ class TableGenerator:
             col_definitions.append(
                 f"    CONSTRAINT {constraint_name} PRIMARY KEY ({pk_cols})"
             )
+
+        # Ajoute les FK composites
+        col_definitions.extend(fk_constraints)
 
         ddl = f"CREATE TABLE {table_name} (\n" + ",\n".join(col_definitions) + "\n)"
         return ddl
@@ -130,6 +135,204 @@ class TableGenerator:
             print(f"   Erreur lors de la création de {table_name} : {e}")
             print(f"     DDL complet :\n{ddl}")
             return False
+
+    # -----------------------------------------------------------------
+    # Migration automatique des clés "legacy" (NOUVEAU)
+    # -----------------------------------------------------------------
+    def _expected_key_columns(self, table):
+        """
+        Retourne la liste des noms de colonnes qui DOIVENT être la clé
+        primaire de cette table, d'après la définition actuelle du
+        parseur (table["primary_key"] pour une clé composite, ou la
+        colonne portant "PRIMARY KEY" inline pour une clé simple).
+        """
+        composite_pk = table.get("primary_key")
+        if composite_pk:
+            return list(composite_pk)
+
+        for col in table["columns"]:
+            if "PRIMARY KEY" in col.get("sql_type", ""):
+                return [col["name"]]
+
+        return []
+
+    def _actual_pk_info(self, table_name):
+        """
+        Retourne (constraint_name, [colonnes]) de la contrainte PRIMARY KEY
+        RÉELLEMENT présente en base pour cette table, ou (None, []) si
+        aucune.
+        """
+        self.cursor.execute(
+            """
+            SELECT constraint_name FROM user_constraints
+            WHERE table_name = :t AND constraint_type = 'P'
+            """,
+            t=table_name.upper()
+        )
+        row = self.cursor.fetchone()
+        if row is None:
+            return None, []
+
+        constraint_name = row[0]
+        self.cursor.execute(
+            """
+            SELECT column_name FROM user_cons_columns
+            WHERE table_name = :t AND constraint_name = :c
+            ORDER BY position
+            """,
+            t=table_name.upper(), c=constraint_name
+        )
+        cols = [r[0].lower() for r in self.cursor.fetchall()]
+        return constraint_name, cols
+
+    def _base_sql_type(self, sql_type):
+        """
+        Retire les suffixes 'PRIMARY KEY' / 'REFERENCES ...(...)' d'un
+        sql_type pour obtenir le type Oracle brut, utilisable dans un
+        ALTER TABLE ADD (qui n'accepte pas ces clauses de la même façon
+        qu'un CREATE TABLE).
+        """
+        base = sql_type
+        if "REFERENCES" in base:
+            base = base.split("REFERENCES")[0].strip()
+        base = base.replace("PRIMARY KEY", "").strip()
+        return base
+
+    def _legacy_column_candidate(self, col):
+        """
+        Reconstruit le nom de colonne qu'aurait généré l'ANCIEN code
+        (avant aplatissement de la racine / clés naturelles), à partir
+        du xml_path actuel. Ex : xml_path=['REFERENCE_TTN','NUMERO_DOSSIER']
+        -> 'reference_ttn_numero_dossier'. Retourne None si xml_path est
+        absent (rien à deviner).
+        """
+        xml_path = col.get("xml_path")
+        if not xml_path:
+            return None
+        return "_".join(seg.lower() for seg in xml_path)
+
+    def migrate_legacy_key(self, table):
+        """
+        Détecte si la table existante en base a une clé primaire
+        différente de celle attendue par le parseur actuel (typiquement :
+        une table renommée AVANT le passage aux clés naturelles, qui a
+        gardé son ancien ID généré comme PK et ses anciennes colonnes
+        aplaties). Si c'est le cas, migre automatiquement :
+          1. Ajoute la/les colonne(s) clé natives manquantes.
+          2. Les repeuple depuis l'ancienne colonne équivalente si elle
+             est identifiable (via le xml_path).
+          3. Retire l'ancienne contrainte PRIMARY KEY.
+          4. Pose la nouvelle contrainte PRIMARY KEY sur la clé naturelle.
+
+        Ne fait rien si la table n'existe pas encore, ou si sa PK
+        correspond déjà à ce qui est attendu -- conçu pour être appelé à
+        chaque exécution (idempotent), y compris après un renommage de
+        schéma, pour que l'expérience reste fiable à chaque fois.
+        """
+        table_name = table["table_name"]
+        expected_key_cols = self._expected_key_columns(table)
+        if not expected_key_cols:
+            return  # table sans clé naturelle définie (exception ID généré) -- rien à migrer
+
+        if not self.table_exists(table_name):
+            return
+
+        actual_constraint_name, actual_pk_cols = self._actual_pk_info(table_name)
+
+        if set(actual_pk_cols) == set(expected_key_cols):
+            return  # déjà cohérent, rien à faire
+
+        print(f"\n Dérive de clé détectée sur {table_name} : "
+              f"PK actuelle = {actual_pk_cols or '(aucune)'}, "
+              f"attendue = {expected_key_cols} -- migration automatique...")
+
+        # Colonnes existantes réellement en base
+        self.cursor.execute(
+            "SELECT column_name FROM user_tab_columns WHERE table_name = :t",
+            t=table_name.upper()
+        )
+        existing_columns = {row[0].lower() for row in self.cursor.fetchall()}
+
+        columns_by_name = {c["name"]: c for c in table["columns"]}
+        any_column_added = False
+        backfill_failed = False
+
+        for key_col_name in expected_key_cols:
+            if key_col_name in existing_columns:
+                continue  # colonne déjà là, seule la contrainte doit changer
+
+            col_def = columns_by_name.get(key_col_name)
+            base_type = self._base_sql_type(col_def["sql_type"]) if col_def else "VARCHAR2(105)"
+
+            try:
+                self.cursor.execute(
+                    f"ALTER TABLE {table_name} ADD {key_col_name} {base_type}"
+                )
+                any_column_added = True
+                print(f"    Colonne {key_col_name} ajoutée à {table_name}")
+            except oracledb.Error as e:
+                print(f"    Impossible d'ajouter {key_col_name} à {table_name} : {e}")
+                backfill_failed = True
+                continue
+
+            legacy_candidate = self._legacy_column_candidate(col_def) if col_def else None
+            if legacy_candidate and legacy_candidate in existing_columns:
+                try:
+                    self.cursor.execute(
+                        f"UPDATE {table_name} SET {key_col_name} = {legacy_candidate} "
+                        f"WHERE {key_col_name} IS NULL"
+                    )
+                    print(f"    {table_name}.{key_col_name} repeuplée depuis "
+                          f"l'ancienne colonne {legacy_candidate} "
+                          f"({self.cursor.rowcount} ligne(s))")
+                except oracledb.Error as e:
+                    print(f"    Impossible de repeupler {key_col_name} depuis "
+                          f"{legacy_candidate} : {e}")
+                    backfill_failed = True
+            else:
+                print(f"    Aucune ancienne colonne correspondante trouvée pour "
+                      f"{key_col_name} -- restera vide pour les lignes existantes")
+                backfill_failed = True
+
+        self.connection.commit()
+
+        if backfill_failed:
+            print(f"    Migration partielle de {table_name} : la nouvelle clé "
+                  f"contient des valeurs manquantes -- contrainte PRIMARY KEY "
+                  f"non posée pour éviter un échec. À corriger manuellement si besoin.")
+            return
+
+        # Retire l'ancienne contrainte PK (si elle existe et diffère de la nouvelle)
+        if actual_constraint_name:
+            try:
+                self.cursor.execute(
+                    f"ALTER TABLE {table_name} DROP CONSTRAINT {actual_constraint_name}"
+                )
+                print(f"    Ancienne contrainte PK ({actual_constraint_name}) retirée de {table_name}")
+            except oracledb.Error as e:
+                print(f"    Impossible de retirer l'ancienne PK de {table_name} : {e}")
+                self.connection.commit()
+                return
+
+        # Pose la nouvelle contrainte PK sur la clé naturelle attendue
+        try:
+            pk_cols_sql = ", ".join(expected_key_cols)
+            for col_name in expected_key_cols:
+                self.cursor.execute(
+                    f"ALTER TABLE {table_name} MODIFY ({col_name} NOT NULL)"
+                )
+            constraint_name = f"PK_{table_name}"[:30]
+            self.cursor.execute(
+                f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} "
+                f"PRIMARY KEY ({pk_cols_sql})"
+            )
+            self.connection.commit()
+            print(f"    Nouvelle PRIMARY KEY ({pk_cols_sql}) posée sur {table_name} "
+                  f"-- migration terminée")
+        except oracledb.Error as e:
+            print(f"    Impossible de poser la nouvelle PRIMARY KEY sur "
+                  f"{table_name} : {e}")
+            self.connection.commit()
 
     def sync_missing_columns(self, table):
         table_name = table["table_name"]
@@ -332,6 +535,12 @@ class TableGenerator:
             elif result is False:
                 if self.table_exists(table["table_name"]):
                     skipped += 1
+                    # Corrige d'abord toute dérive de clé (table renommée
+                    # avant le passage aux clés naturelles, ou toute autre
+                    # incohérence entre la PK réelle et celle attendue par
+                    # le parseur actuel) -- AVANT de synchroniser le reste
+                    # des colonnes, pour rester cohérent à chaque exécution.
+                    self.migrate_legacy_key(table)
                     added = self.sync_missing_columns(table)
                     columns_synced += len(added)
                 else:

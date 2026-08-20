@@ -1,4 +1,3 @@
-# xsd_parser.py
 import xml.etree.ElementTree as ET
 
 XS = "{http://www.w3.org/2001/XMLSchema}"
@@ -12,7 +11,64 @@ TYPE_MAPPING = {
     "dateTime":("TIMESTAMP", None),
 }
 
+
 class XSDParser:
+    # ------------------------------------------------------------------
+    # CLÉS NATURELLES (même principe que xsd_parser_tce.py)
+    # ------------------------------------------------------------------
+    # Clé de la table racine TEIF : DocumentIdentifier = le numéro de
+    # facture, situé dans le XSD à InvoiceBody(BodyType) > Bgm(BgmType) >
+    # DocumentIdentifier. Il est déclaré obligatoire et nillable="false",
+    # donc toujours présent (contrairement à NUMERO_DOSSIER côté TCE).
+    ROOT_KEY_COLUMN_NAME = "document_identifier"
+    ROOT_KEY_XML_PATH = ["InvoiceBody", "Bgm", "DocumentIdentifier"]
+
+    # Discriminant naturel par type XSD répété, à l'intérieur d'une même
+    # facture. Une table absente de ce dict n'a pas (encore) de
+    # discriminant naturel identifié et garde son ID généré, exactement
+    # comme les tables *_OBSERVATION côté TCE -- exception assumée.
+    NATURAL_DISCRIMINANTS = {
+        "LinType": "itemidentifier",   # ItemIdentifier = numéro de ligne
+
+        # Les trois suivants reposent sur un attribut OBLIGATOIRE
+        # (use="required") dont le XSD énumère les valeurs possibles :
+        # c'est un code de rôle, pas une donnée libre. Un même rôle n'a
+        # de sens qu'une fois par facture (un seul vendeur I-62, un seul
+        # acheteur I-64, une seule date d'émission I-31...).
+        # ATTENTION : justification sémantique tirée du XSD, vérifiée sur
+        # une seule facture réelle (facture_001) faute d'autres exemples.
+        # Si un jour un ORA-00001 apparaît sur l'une de ces tables, c'est
+        # que l'hypothèse est fausse pour ce cas : retirer la ligne
+        # correspondante ici suffit à revenir à l'ID généré.
+        "PartDetailType": "attr_functioncode",       # I-62 vendeur, I-64 acheteur
+        "PartDetailTestType": "attr_functioncode",
+        "DtmDetailType": "attr_functioncode",        # I-31 émission, I-32 échéance...
+        "PytSegType": "pyt_paymenttearmstypecode",   # I-114, I-115...
+
+        # Enfants de PARTDETAIL -- possibles seulement depuis que
+        # PARTDETAIL a lui-même une clé naturelle composite.
+        # Reference : NotNullDataStringType_200, obligatoire, et
+        # constaté unique à l'intérieur de chaque partenaire.
+        "RefGrpType": "reference",
+
+        # PAS de clé naturelle pour :
+        #  - LocType : son discriminant naturel serait functionCode, mais
+        #    la colonne porte le MÊME NOM (attr_functioncode) que la clé
+        #    héritée de son parent PARTDETAIL. Les deux fusionneraient en
+        #    une seule colonne et une valeur écraserait l'autre. Il
+        #    faudrait d'abord préfixer les colonnes propres pour lever
+        #    l'ambiguïté.
+        #  - AdressesType : maxOccurs unbounded et champs libres
+        #    optionnels (rue, ville...) -- rien d'unique garanti.
+        #  - CtaGrpType : seul champ distinctif = numéro de téléphone,
+        #    optionnel ; ContactIdentifier se répète (3x "TTN").
+        #  - MoaDetailsType : montant répété (doublon constaté).
+        #  - TaxDetailsType, AlcDetailsType, FtxDetailType, ApiType :
+        #    aucun discriminant obligatoire identifié.
+        # Ces tables gardent un ID généré : exception assumée, faute de
+        # clé naturelle disponible dans le XSD.
+    }
+
     def __init__(self, xsd_path):
         self.xsd_path = xsd_path
         self.tree = ET.parse(xsd_path)
@@ -20,6 +76,8 @@ class XSDParser:
         self.simple_types = {}
         self.complex_types = {}
         self.tables = []
+        self.root_key_sql_type = None
+        self.root_table_name = None
 
     def parse(self):
         print(f"Analyse du XSD : {self.xsd_path}")
@@ -66,12 +124,31 @@ class XSDParser:
             name = complex_type.get("name")
             self.complex_types[name] = self._extract_type_info(complex_type)
 
+    # ------------------------------------------------------------------
+    # Clé naturelle de la racine
+    # ------------------------------------------------------------------
+    def _resolve_root_key_type(self):
+        """
+        Retourne le type Oracle de DocumentIdentifier tel que déclaré dans
+        BgmType, ou None si le XSD ne le contient pas (schéma modifié).
+        Dans ce dernier cas, _parse_root_element retombe explicitement sur
+        l'ancien ID généré plutôt que de planter en silence.
+        """
+        bgm = self.complex_types.get("BgmType")
+        if not bgm:
+            return None
+        for field in bgm["fields"]:
+            if field["name"] == "DocumentIdentifier":
+                return field["oracle_type"] or "VARCHAR2(70)"
+        return None
+
     def _parse_root_element(self):
         root_elem = self.root.find(f"{XS}element")
         if root_elem is None:
             print("  → Aucun élément racine trouvé")
             return
         root_name = root_elem.get("name", "ROOT")
+        self.root_table_name = root_name.upper()
         print(f"  → Élément racine trouvé : {root_name}")
         table = {
             "table_name": root_name.upper(),
@@ -79,11 +156,37 @@ class XSDParser:
             "columns": [],
             "children": [],
         }
-        table["columns"].append({
-            "name": f"id_{root_name.lower()}",
-            "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
-            "nullable": False,
-        })
+
+        # Clé naturelle au lieu d'un ID auto-incrémenté. xml_path est
+        # fourni explicitement (comme côté TCE) pour que xml_extractor
+        # résolve la valeur via le vrai chemin de balises, sans redécouper
+        # le nom de colonne sur "_".
+        root_key_type = self._resolve_root_key_type()
+        if root_key_type:
+            self.root_key_sql_type = root_key_type
+            table["columns"].append({
+                "name": self.ROOT_KEY_COLUMN_NAME,
+                # Pas de "PRIMARY KEY" inline : la contrainte est posée au
+                # niveau table via table["primary_key"] juste après (sinon
+                # ORA-02260 : une seule clé primaire par table).
+                "sql_type": root_key_type,
+                "nullable": False,
+                "xml_path": list(self.ROOT_KEY_XML_PATH),
+                "full_name": "_".join(self.ROOT_KEY_XML_PATH),
+            })
+            table["primary_key"] = [self.ROOT_KEY_COLUMN_NAME]
+            print(f"  → Clé naturelle racine : {self.ROOT_KEY_COLUMN_NAME} "
+                  f"({' > '.join(self.ROOT_KEY_XML_PATH)})")
+        else:
+            print("  → DocumentIdentifier introuvable dans le XSD "
+                  "-- ID généré conservé par exception")
+            self.root_key_sql_type = None
+            table["columns"].append({
+                "name": f"id_{root_name.lower()}",
+                "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
+                "nullable": False,
+            })
+
         anon_type = root_elem.find(f"{XS}complexType")
         if anon_type is not None:
             for attr in anon_type.findall(f".//{XS}attribute"):
@@ -230,11 +333,9 @@ class XSDParser:
     def _flatten_type(self, type_name, visited=None):
         """
         Aplati récursivement un type complexe en une liste de champs.
-        Chaque champ porte désormais aussi 'full_name' : le nom complet
-        AVANT troncature (ex: "PytFii_InstitutionIdentification_BranchIdentifier"),
-        utilisé par table_generator.py pour documenter via COMMENT ON COLUMN
-        la colonne Oracle réellement créée (souvent tronquée à 30 caractères),
-        sans changer le nom de colonne lui-même.
+        Chaque champ porte aussi 'full_name' : le nom complet AVANT
+        troncature, utilisé par table_generator.py pour documenter via
+        COMMENT ON COLUMN la colonne Oracle réellement créée.
         """
         if visited is None:
             visited = set()
@@ -273,6 +374,7 @@ class XSDParser:
                     if alt_type and alt_type not in direct_parent:
                         direct_parent[alt_type] = parent_name
 
+        root_name = None
         root_elem = self.root.find(f"{XS}element")
         if root_elem is not None:
             root_name = root_elem.get("name", "ROOT")
@@ -357,6 +459,112 @@ class XSDParser:
         used_names.add(truncated)
         return truncated
 
+    # ------------------------------------------------------------------
+    # Attribution des clés (naturelles quand c'est possible)
+    # ------------------------------------------------------------------
+    def _assign_keys(self, table, type_name, parent_table_name):
+        """
+        Attribue à `table` sa clé de liaison vers son parent, puis sa clé
+        primaire. Trois cas, dans cet ordre :
+
+        1. Parent à clé naturelle SIMPLE (TEIF) -> FK = document_identifier
+           (une vraie donnée, propagée par le loader).
+        2. Parent à clé naturelle COMPOSITE (LIN) -> FK = toutes les
+           colonnes de cette clé + une contrainte FK composite (même
+           mécanisme que xsd_parser_tce.py, marquée is_fk_constraint pour
+           que table_generator/data_loader la traitent comme une contrainte
+           et non comme une colonne).
+        3. Parent sans clé naturelle -> ancien mécanisme numérique
+           (id_parent_fk REFERENCES parent(id_parent)), inchangé.
+
+        Ensuite, si la table a un discriminant naturel connu
+        (NATURAL_DISCRIMINANTS) -> clé primaire composite 100% naturelle.
+        Sinon -> ID généré conservé, exception assumée et documentée.
+        """
+        parent_def = None
+        parent_pk = None
+        if parent_table_name:
+            for t in self.tables:
+                if t["table_name"] == parent_table_name:
+                    parent_def = t
+                    parent_pk = t.get("primary_key")
+                    break
+
+        # --- 1/2/3 : colonnes de liaison vers le parent ---
+        if parent_table_name and parent_pk and len(parent_pk) > 1:
+            for i, pk_col in enumerate(parent_pk):
+                pk_type = "VARCHAR2(255)"
+                for c in parent_def["columns"]:
+                    if c["name"] == pk_col:
+                        pk_type = c["sql_type"].replace("PRIMARY KEY", "").strip()
+                        if "REFERENCES" in pk_type:
+                            pk_type = pk_type.split("REFERENCES")[0].strip()
+                        break
+                if not any(c["name"] == pk_col for c in table["columns"]):
+                    table["columns"].insert(i, {
+                        "name": pk_col,
+                        "sql_type": pk_type,
+                        "nullable": False,
+                        "is_propagated_key": True,
+                    })
+            fk_cols = ", ".join(parent_pk)
+            table["columns"].append({
+                "name": f"__fk_constraint_{parent_table_name}",
+                "sql_type": (f"CONSTRAINT FK_{table['table_name']}_{parent_table_name} "
+                             f"FOREIGN KEY ({fk_cols}) "
+                             f"REFERENCES {parent_table_name}({fk_cols})")[:4000],
+                "nullable": True,
+                "is_fk_constraint": True,
+            })
+            table["parent_table"] = parent_table_name
+
+        elif parent_table_name and parent_pk and len(parent_pk) == 1:
+            key_col = parent_pk[0]
+            key_type = "VARCHAR2(255)"
+            for c in parent_def["columns"]:
+                if c["name"] == key_col:
+                    key_type = c["sql_type"].replace("PRIMARY KEY", "").strip()
+                    if "REFERENCES" in key_type:
+                        key_type = key_type.split("REFERENCES")[0].strip()
+                    break
+            if not any(c["name"] == key_col for c in table["columns"]):
+                table["columns"].insert(0, {
+                    "name": key_col,
+                    "sql_type": f"{key_type} REFERENCES {parent_table_name}({key_col})",
+                    "nullable": False,
+                    "is_propagated_key": True,
+                })
+            table["parent_table"] = parent_table_name
+
+        elif parent_table_name:
+            # Parent resté sur un ID généré : comportement d'origine.
+            fk_name = self._truncate_name(f"id_{parent_table_name.lower()}_fk")
+            table["columns"].append({
+                "name": fk_name,
+                "sql_type": (f"NUMBER REFERENCES {parent_table_name}"
+                             f"(id_{parent_table_name.lower()})"),
+                "nullable": False,
+            })
+            table["parent_table"] = parent_table_name
+
+        # --- Clé primaire de CETTE table ---
+        discriminant = self.NATURAL_DISCRIMINANTS.get(type_name)
+        has_discriminant = discriminant and any(
+            c["name"] == discriminant for c in table["columns"]
+        )
+
+        if has_discriminant and parent_pk:
+            table["primary_key"] = list(parent_pk) + [discriminant]
+        else:
+            if discriminant and not has_discriminant:
+                print(f"    {table['table_name']} : discriminant '{discriminant}' "
+                      f"absent des colonnes -- ID généré conservé")
+            table["columns"].append({
+                "name": f"id_{table['table_name'].lower()}",
+                "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
+                "nullable": False,
+            })
+
     def _build_tables(self):
         list_types = set()
         forced_tables = {
@@ -397,46 +605,58 @@ class XSDParser:
         root_element = self.root.find(f"{XS}element")
         root_type_name = root_element.get("name", "ROOT").upper() if root_element is not None else "ROOT"
 
-        for type_name, type_info in self.complex_types.items():
-            table_name = type_name.upper().replace("TYPE", "").strip("_")
-            if type_name in list_types or table_name == root_type_name:
-                table = {
-                    "table_name": table_name,
-                    "original_type": type_name,
-                    "columns": [],
-                    "children": type_info["children"],
-                }
+        # Types à transformer en tables, ordonnés parent AVANT enfant :
+        # _assign_keys a besoin de la primary_key du parent (déjà dans
+        # self.tables) pour décider du type de FK à poser. L'ordre du dict
+        # des complexTypes ne le garantit pas -- on le calcule.
+        candidates = [
+            tn for tn in self.complex_types
+            if tn in list_types
+            or tn.upper().replace("TYPE", "").strip("_") == root_type_name
+        ]
 
+        def depth(type_name, seen=None):
+            if seen is None:
+                seen = set()
+            if type_name in seen:
+                return 0
+            seen.add(type_name)
+            parent = parent_map.get(type_name)
+            if not parent or parent not in candidates:
+                return 0
+            return 1 + depth(parent, seen)
+
+        candidates.sort(key=depth)
+
+        for type_name in candidates:
+            type_info = self.complex_types[type_name]
+            table_name = type_name.upper().replace("TYPE", "").strip("_")
+            table = {
+                "table_name": table_name,
+                "original_type": type_name,
+                "columns": [],
+                "children": type_info["children"],
+            }
+
+            flat_fields = self._flatten_type(type_name)
+            for field in flat_fields:
+                nullable_str = "" if field["nullable"] else " NOT NULL"
+                col_name = self._truncate_name(field["name"].lower())
                 table["columns"].append({
-                    "name": f"id_{table_name.lower()}",
-                    "sql_type": "NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
-                    "nullable": False,
+                    "name": col_name,
+                    "sql_type": field["oracle_type"] or "VARCHAR2(255)",
+                    "nullable": field["nullable"],
+                    "constraint": nullable_str,
+                    "full_name": field.get("full_name", field["name"]),
                 })
 
-                if type_name in parent_map:
-                    parent_type = parent_map[type_name]
-                    parent_table = parent_type.upper().replace("TYPE", "").strip("_")
-                    fk_name = self._truncate_name(f"id_{parent_table.lower()}_fk")
-                    table["columns"].append({
-                        "name": fk_name,
-                        "sql_type": f"NUMBER REFERENCES {parent_table}(id_{parent_table.lower()})",
-                        "nullable": False,
-                    })
-                    table["parent_table"] = parent_table
+            parent_type = parent_map.get(type_name)
+            parent_table_name = None
+            if parent_type:
+                parent_table_name = parent_type.upper().replace("TYPE", "").strip("_")
 
-                flat_fields = self._flatten_type(type_name)
-                for field in flat_fields:
-                    nullable_str = "" if field["nullable"] else " NOT NULL"
-                    col_name = self._truncate_name(field["name"].lower())
-                    table["columns"].append({
-                        "name": col_name,
-                        "sql_type": field["oracle_type"] or "VARCHAR2(255)",
-                        "nullable": field["nullable"],
-                        "constraint": nullable_str,
-                        "full_name": field.get("full_name", field["name"]),
-                    })
-
-                self.tables.append(table)
+            self._assign_keys(table, type_name, parent_table_name)
+            self.tables.append(table)
 
     def _build_tag_map(self):
         tag_map = {}
@@ -467,6 +687,8 @@ if __name__ == "__main__":
     tables, tag_map = parser.parse()
     print("\n=== RÉSULTAT ===")
     for table in tables:
-        print(f"\nTable : {table['table_name']}")
+        parent = table.get("parent_table", "(racine)")
+        pk = table.get("primary_key", "(ID généré)")
+        print(f"\nTable : {table['table_name']}  (parent: {parent})  PK: {pk}")
         for col in table['columns']:
             print(f"  - {col['name']} : {col['sql_type']}")

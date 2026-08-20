@@ -574,6 +574,14 @@ def rename_schema_root(schema_key, new_name):
     par Oracle en interne par OID, pas par nom). Ne crée aucune table :
     échoue explicitement si la table actuelle n'existe pas encore
     (il faut d'abord cliquer "Créer les tables").
+
+    Après le renommage, vérifie IMMÉDIATEMENT que la structure de la
+    table (en particulier sa clé primaire) correspond bien à ce
+    qu'attend le parseur actuel, et corrige automatiquement toute
+    dérive détectée (cf. TableGenerator.migrate_legacy_key) -- plutôt
+    que de laisser cette vérification au prochain traitement de fichier.
+    Ainsi, un renommage reste toujours immédiatement utilisable, sans
+    délai ni surprise au prochain dépôt XML.
     """
     if not new_name or not new_name.strip():
         raise ValueError("Le nouveau nom ne peut pas être vide.")
@@ -627,6 +635,16 @@ def rename_schema_root(schema_key, new_name):
             new_name=new_name, old_name=current_name,
         )
         generator.connection.commit()
+
+        # --- Vérification/correction immédiate de la cohérence de clé ---
+        # La table vient d'être renommée : si elle avait été renommée une
+        # première fois AVANT un changement de schéma de clés (ou toute
+        # autre dérive structurelle), on le corrige maintenant plutôt que
+        # d'attendre le prochain fichier XML traité.
+        if default_root is not None:
+            default_root["table_name"] = new_name
+            generator.migrate_legacy_key(default_root)
+            generator.sync_missing_columns(default_root)
 
         _save_custom_name(generator, schema_key, new_name, os.path.basename(xsd_path))
     finally:

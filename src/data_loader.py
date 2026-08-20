@@ -89,12 +89,6 @@ class DataLoader:
                     message_erreur=None, duree_secondes=None):
         """
         Enregistre le résultat du traitement d'un fichier dans ETL_LOG.
-
-        nom_fichier      : nom du fichier XML traité
-        statut           : 'OK' ou 'ERREUR'
-        lignes_chargees  : nombre de lignes chargées avec succès
-        message_erreur   : message d'erreur si statut == 'ERREUR', sinon None
-        duree_secondes   : durée du traitement en secondes
         """
         if message_erreur and len(message_erreur) > 4000:
             message_erreur = message_erreur[:3997] + "..."
@@ -112,10 +106,9 @@ class DataLoader:
     def _get_pk_column(self, table):
         """
         Retourne le nom de la colonne PK générée (IDENTITY) SI la table en
-        a une. Ne renvoie plus rien pour DOCUMENT / ARTICLE / PIECES_JOINTE
-        (clé naturelle désormais) -- reste utile uniquement pour les tables
-        "exception" sans discriminant naturel connu (ex:
-        MINISTERE_COMMERCE_OBSERVATION), qui gardent un ID Oracle généré.
+        a une. Reste utile uniquement pour les tables "exception" sans
+        discriminant naturel connu (ex: MINISTERE_COMMERCE_OBSERVATION),
+        qui gardent un ID Oracle généré.
         """
         for col in table["columns"]:
             if "GENERATED ALWAYS AS IDENTITY" in col["sql_type"]:
@@ -148,16 +141,50 @@ class DataLoader:
         )
 
     def load_all(self, tables, data):
+        # La colonne clé racine dépend du schéma : "numero_dossier" pour
+        # TCE, "document_identifier" pour TEIF (facture_INVOIC). On la
+        # déduit de la table racine plutôt que de la coder en dur, sinon
+        # tous les documents d'un schéma dont la clé porte un autre nom
+        # sont rejetés avec "clé racine absente".
+        root_table = next((t for t in tables if not t.get("parent_table")), None)
+        if root_table:
+            root_pk = root_table.get("primary_key")
+            if root_pk:
+                self.NATURAL_KEY_COLUMN = root_pk[0]
+
         sorted_tables = self._sort_tables_by_depth(tables)
 
         print(f"\nOrdre de chargement : {[t['table_name'] for t in sorted_tables]}")
 
+        root_name = root_table["table_name"] if root_table else None
         total_inserted = 0
-        for table in sorted_tables:
-            table_name = table["table_name"]
-            rows = data.get(table_name, [])
-            inserted = self.load_table(table, rows)
-            total_inserted += inserted
+
+        try:
+            for table in sorted_tables:
+                table_name = table["table_name"]
+                rows = data.get(table_name, [])
+                inserted = self.load_table(table, rows)
+
+                # Si la ligne racine n'a pas pu être insérée (doublon,
+                # clé absente...), le document entier est abandonné :
+                # charger ses tables filles créerait des lignes
+                # orphelines et des doublons dans les tables à ID généré.
+                if table_name == root_name and rows and inserted == 0:
+                    self.connection.rollback()
+                    print(f"\n Document abandonné : la ligne racine "
+                          f"({table_name}) n'a pas pu être insérée. "
+                          f"Aucune ligne fille n'a été conservée.")
+                    return 0
+
+                total_inserted += inserted
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            print("\n Erreur inattendue : transaction annulée, "
+                  "aucune ligne de ce document n'a été conservée.")
+            raise
 
         print(f"\n Chargement terminé : {total_inserted} ligne(s) au total")
         return total_inserted
@@ -181,16 +208,12 @@ class DataLoader:
 
         1) Clé naturelle (DOCUMENT, ARTICLE, PIECES_JOINTE...) : pas de
            RETURNING, pas d'id_mapping numérique. NUMERO_DOSSIER est une
-           vraie donnée du XML -- connue pour DOCUMENT dès l'extraction,
-           et simplement propagée aux tables descendantes en remontant la
-           chaîne _parent_local_id via document_key_mapping.
+           vraie donnée du XML -- propagée aux tables descendantes via
+           document_key_mapping.
 
         2) Table "exception" sans discriminant naturel (identifiée par la
-           présence d'une colonne IDENTITY, ex: MINISTERE_COMMERCE_OBSERVATION) :
-           on garde l'ancien mécanisme RETURNING ... INTO + id_mapping,
-           car Oracle doit générer lui-même une valeur pour cette table.
-           NUMERO_DOSSIER lui est quand même injecté en plus, comme FK
-           simple vers DOCUMENT.
+           présence d'une colonne IDENTITY) : on garde le mécanisme
+           RETURNING ... INTO + id_mapping.
         """
         table_name = table["table_name"]
         generated_pk_column = self._get_pk_column(table)
@@ -205,11 +228,19 @@ class DataLoader:
             print(f"   {table_name} : aucune ligne à charger")
             return 0
 
-        # Toutes les colonnes sont insérées directement -- y compris la FK
-        # numero_dossier, désormais une vraie valeur, pas un ID à résoudre
-        # après coup. Seule la colonne IDENTITY (si elle existe) est
-        # exclue de l'INSERT explicite : Oracle la génère lui-même.
-        insertable_columns = [c for c in table["columns"] if c["name"] != generated_pk_column]
+        # FIX : on exclut désormais aussi les pseudo-colonnes de contrainte
+        # FK composite (is_fk_constraint=True, ex: "__fk_constraint_ARTICLE").
+        # Ce ne sont pas de vraies colonnes -- table_generator.py les
+        # convertit en clause CONSTRAINT dans le DDL et ne les crée jamais
+        # comme colonnes réelles. Avant ce correctif, elles étaient quand
+        # même incluses dans l'INSERT (colonne + valeur NULL), ce qui
+        # provoquait un ORA-00904 (identifiant invalide) pour toute table
+        # enfant d'un parent à clé composite (ex: ARTICLE_COMMERCE_OBSERVATION,
+        # ARTICLE_TECHNIQUE_OBSERVATION, ARTICLE_BANQUE_OBSERVATION).
+        insertable_columns = [
+            c for c in table["columns"]
+            if c["name"] != generated_pk_column and not c.get("is_fk_constraint")
+        ]
 
         inserted = 0
         errors = 0
@@ -223,7 +254,8 @@ class DataLoader:
                 document_key = row.get(self.NATURAL_KEY_COLUMN)
                 if document_key is None:
                     print(f"    Ligne ignorée dans {table_name} : "
-                          f"NUMERO_DOSSIER absent -- impossible de charger ce document")
+                          f"NUMERO_DOSSIER absent -- impossible de charger ce document".replace(
+                              "NUMERO_DOSSIER", self.NATURAL_KEY_COLUMN.upper()))
                     errors += 1
                     continue
             else:
@@ -287,7 +319,12 @@ class DataLoader:
                     print(f"      Valeurs : {insert_values}")
                     errors += 1
 
-        self.connection.commit()
+        # PAS de commit ici : le document entier forme une seule
+        # transaction, validée (ou annulée) par load_all. Sinon, quand la
+        # ligne racine est refusée (doublon), les tables filles à ID
+        # généré restaient quand même insérées et polluaient la base à
+        # chaque relance.
+        self.last_errors = errors
         print(f"   {table_name} : {inserted} ligne(s) chargée(s), {errors} erreur(s)")
         return inserted
 
