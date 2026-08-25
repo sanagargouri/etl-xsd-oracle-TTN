@@ -45,3 +45,9 @@ Thumbs.db
 *.bak 
 # --- Secrets --- 
 config.py 
+
+# --- Fichiers temporaires du Générateur DDL / Déposer un fichier ---
+data/uploads_ddl/*
+data/xsd_ddl/*
+!data/uploads_ddl/.gitkeep
+!data/xsd_ddl/.gitkeep

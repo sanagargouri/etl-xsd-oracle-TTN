@@ -201,20 +201,7 @@ class DataLoader:
         return value
 
     def load_table(self, table, rows):
-        """
-        Insère les lignes d'une table.
-
-        Deux chemins selon le type de clé de la table (cf. xsd_parser_tce.py) :
-
-        1) Clé naturelle (DOCUMENT, ARTICLE, PIECES_JOINTE...) : pas de
-           RETURNING, pas d'id_mapping numérique. NUMERO_DOSSIER est une
-           vraie donnée du XML -- propagée aux tables descendantes via
-           document_key_mapping.
-
-        2) Table "exception" sans discriminant naturel (identifiée par la
-           présence d'une colonne IDENTITY) : on garde le mécanisme
-           RETURNING ... INTO + id_mapping.
-        """
+        
         table_name = table["table_name"]
         generated_pk_column = self._get_pk_column(table)
         parent_table = table.get("parent_table")

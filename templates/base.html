@@ -7,14 +7,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
     <div class="app">
 
         <header>
             <div class="brandmark">
-                <!-- Remplace static/logo/logo-ttn.png par le logo officiel TTN.
-                     Si le fichier est absent, le sceau SVG de secours s'affiche à la place. -->
                 <img src="{{ url_for('static', filename='logo/logo.png') }}"
                      alt="Logo TTN"
                      class="ttn-logo"
@@ -41,6 +40,7 @@
             <a href="/historique" class="{% if request.path == '/historique' %}active{% endif %}">Historique</a>
             <a href="/tables-oracle" class="{% if request.path == '/tables-oracle' %}active{% endif %}">Tables Oracle</a>
             <a href="/schemas" class="{% if request.path == '/schemas' %}active{% endif %}">Gérer les schémas</a>
+            <a href="{{ url_for('ddl.index') }}" class="{% if request.path.startswith('/ddl') %}active{% endif %}">Générateur DDL</a>
         </nav>
 
         <main>

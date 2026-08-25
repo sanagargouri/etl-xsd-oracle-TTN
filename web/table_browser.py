@@ -9,9 +9,13 @@ Générique : aucune colonne ni aucun nom de table n'est écrit en dur —
 tout est détecté dynamiquement (user_tables, cursor.description),
 pour que ça marche avec n'importe quel XSD, pas seulement les factures.
 
-Depuis l'ajout de ETL_SCHEMA_TABLES (traçabilité table -> XSD d'origine),
-ce module permet aussi de filtrer les tables par schéma et de récupérer
-le DDL exact d'une table (pour copier/recréer ailleurs).
+Deux sources de schémas connus :
+  - ETL_SCHEMA_TABLES : ancien mécanisme (TableGenerator / "Gérer les
+    schémas" historique).
+  - DDL_XSD_HISTORIQUE / DDL_XSD_TABLE_CONFIG : mécanisme générique du
+    Générateur DDL / "Déposer un fichier" (ddl_oracle.py).
+Les deux sont fusionnées ici pour que le filtre par schéma fonctionne
+quelle que soit l'origine des tables.
 """
 
 import config
@@ -19,7 +23,10 @@ from src.data_loader import DataLoader
 
 PAGE_SIZE = 25
 
-_TECHNICAL_TABLES = ("ETL_LOG", "ETL_SCHEMA_TABLES", "ETL_SCHEMA_CONFIG")
+_TECHNICAL_TABLES = (
+    "ETL_LOG", "ETL_SCHEMA_TABLES", "ETL_SCHEMA_CONFIG",
+    "DDL_XSD_HISTORIQUE", "DDL_XSD_TABLE_CONFIG", "DDL_XSD_PENDING_FILES",
+)
 
 
 def _connect():
@@ -47,27 +54,43 @@ _KNOWN_LABELS = {
 
 def list_schemas():
     """
-    Liste les schema_key distincts connus dans ETL_SCHEMA_TABLES, avec
-    leur fichier XSD d'origine et un label lisible, pour peupler la liste
-    déroulante de /tables-oracle. Retourne [] si la table n'existe pas
-    encore (avant le premier traitement de fichier).
+    Liste les schémas connus pour peupler la liste déroulante de
+    /tables-oracle, en fusionnant les deux sources :
+      - ETL_SCHEMA_TABLES (ancien mécanisme, schema_key libre type
+        "TEIF"/"DOCUMENT"/"AUTO_...")
+      - DDL_XSD_HISTORIQUE (Générateur DDL / Déposer un fichier),
+        identifié par un schema_key préfixé "ddl:<id_historique>" pour
+        ne jamais entrer en collision avec ceux de ETL_SCHEMA_TABLES.
     """
     loader = _connect()
     try:
-        if not _has_table(loader, "ETL_SCHEMA_TABLES"):
-            return []
-        loader.cursor.execute(
-            "SELECT DISTINCT schema_key, xsd_filename FROM ETL_SCHEMA_TABLES "
-            "ORDER BY schema_key"
-        )
-        return [
-            {
-                "schema_key": r[0],
-                "xsd_filename": r[1],
-                "label": _KNOWN_LABELS.get(r[0], r[0].replace("AUTO_", "").title()),
-            }
-            for r in loader.cursor.fetchall()
-        ]
+        schemas = []
+
+        if _has_table(loader, "ETL_SCHEMA_TABLES"):
+            loader.cursor.execute(
+                "SELECT DISTINCT schema_key, xsd_filename FROM ETL_SCHEMA_TABLES "
+                "ORDER BY schema_key"
+            )
+            for r in loader.cursor.fetchall():
+                schemas.append({
+                    "schema_key": r[0],
+                    "xsd_filename": r[1],
+                    "label": _KNOWN_LABELS.get(r[0], r[0].replace("AUTO_", "").title()),
+                })
+
+        if _has_table(loader, "DDL_XSD_HISTORIQUE"):
+            loader.cursor.execute(
+                "SELECT id_historique, xsd_filename, root_name FROM DDL_XSD_HISTORIQUE "
+                "ORDER BY date_creation DESC"
+            )
+            for id_historique, xsd_filename, root_name in loader.cursor.fetchall():
+                schemas.append({
+                    "schema_key": f"ddl:{id_historique}",
+                    "xsd_filename": xsd_filename,
+                    "label": root_name,
+                })
+
+        return schemas
     finally:
         loader.disconnect()
 
@@ -75,15 +98,22 @@ def list_schemas():
 def list_tables(schema_key=None):
     """
     Liste les tables Oracle avec leur nombre de lignes.
-    Si schema_key est fourni et que ETL_SCHEMA_TABLES existe, ne retourne
-    que les tables associées à ce schéma. Sinon, comportement historique :
-    toutes les tables (hors tables techniques ETL_*).
+    Si schema_key est fourni : filtre soit via ETL_SCHEMA_TABLES (ancien
+    mécanisme), soit via DDL_XSD_TABLE_CONFIG si schema_key commence par
+    "ddl:" (Générateur DDL / Déposer un fichier). Sinon, comportement
+    historique : toutes les tables (hors tables techniques).
     """
     loader = _connect()
     try:
-        has_metadata = _has_table(loader, "ETL_SCHEMA_TABLES")
-
-        if schema_key and has_metadata:
+        if schema_key and schema_key.startswith("ddl:"):
+            id_historique = schema_key.split(":", 1)[1]
+            loader.cursor.execute(
+                "SELECT table_name FROM DDL_XSD_TABLE_CONFIG WHERE id_historique = :1 "
+                "ORDER BY ordre",
+                [id_historique],
+            )
+            table_names = [row[0] for row in loader.cursor.fetchall()]
+        elif schema_key and _has_table(loader, "ETL_SCHEMA_TABLES"):
             loader.cursor.execute(
                 "SELECT table_name FROM ETL_SCHEMA_TABLES WHERE schema_key = :1 "
                 "ORDER BY table_name",
@@ -101,8 +131,12 @@ def list_tables(schema_key=None):
         tables = []
         for name in table_names:
             # Nom de table validé juste au-dessus (vient de user_tables ou
-            # de ETL_SCHEMA_TABLES, pas d'une entrée utilisateur directe)
-            # avant d'être inséré dans le SQL.
+            # d'une table de métadonnées, pas d'une entrée utilisateur
+            # directe) avant d'être inséré dans le SQL. Une table listée
+            # en metadonnées mais supprimée entre-temps est ignorée
+            # plutôt que de faire planter la page.
+            if not _has_table(loader, name):
+                continue
             loader.cursor.execute(f"SELECT COUNT(*) FROM {name}")
             count = loader.cursor.fetchone()[0]
             tables.append({"table_name": name, "row_count": count})

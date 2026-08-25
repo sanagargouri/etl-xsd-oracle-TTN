@@ -3,14 +3,15 @@
 {% block title %}Gérer les schémas{% endblock %}
 
 {% block content %}
-<h2 class="section">Gérer les schémas XSD</h2>
+<h2 class="section">Gérer les schémas</h2>
 
 <p style="font-family:Arial,sans-serif; font-size:12.5px; color:var(--gray-600); margin-bottom:20px;">
-    Crée les tables Oracle pour un schéma XSD connu, avec un nom personnalisé
-    optionnel pour la table racine (les tables enfants gardent toujours leur
-    nom automatique). Ce nom est réutilisé automatiquement pour tous les
-    prochains fichiers déposés de ce type, que ce soit via /schemas ou via
-    un dépôt normal traité par le scheduler.
+    Liste des schémas créés via le
+    <a href="{{ url_for('ddl.index') }}">Générateur DDL</a>. Renommer un
+    schéma renomme sa table racine ET toutes ses tables filles (leur nom
+    est construit à partir du préfixe de la racine). Pour créer un
+    nouveau schéma ou recréer des tables manquantes, utilise le
+    Générateur DDL.
 </p>
 
 {% if message %}
@@ -25,218 +26,71 @@
 </div>
 {% endif %}
 
-{% if pending_suggestions %}
-<h3 class="section" style="font-size:14px; margin-top:24px;">
-    Suggestions IA en attente ({{ pending_suggestions|length }})
-</h3>
-<p style="font-family:Arial,sans-serif; font-size:11.5px; color:var(--gray-600); margin-bottom:12px;">
-    Documents dont la racine XML n'a été reconnue par aucun schéma connu.
-    Une IA (Gemini) a proposé un rapprochement possible. Valider ici ne
-    traite AUCUN fichier -- ça confirme juste le rapprochement pour
-    référence. Le fichier source d'origine reste dans <code>data/xml/erreurs/</code>
-    et doit être redéposé manuellement dans <code>a_traiter/</code> si tu
-    veux le retraiter.
-</p>
-<table class="ledger" style="margin-bottom:24px;">
-    <thead>
-        <tr>
-            <th>Fichier source</th>
-            <th>Racine détectée</th>
-            <th>Schéma suggéré</th>
-            <th>Confiance</th>
-            <th>Justification</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for s in pending_suggestions %}
-        <tr>
-            <td style="font-family:'JetBrains Mono', monospace; font-size:11px;">{{ s.source_file }}</td>
-            <td style="font-family:'JetBrains Mono', monospace; font-size:11px;">&lt;{{ s.detected_root_tag or "?" }}&gt;</td>
-            <td>
-                {% if s.suggested_schema_key %}
-                    <span class="badge ok">{{ s.suggested_schema_key }}</span>
-                {% else %}
-                    <span style="color:var(--gray-600);">Aucun -- type nouveau</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if s.confidence_score is not none %}
-                    {{ (s.confidence_score * 100)|int }}%
-                {% else %}
-                    —
-                {% endif %}
-            </td>
-            <td style="font-size:11.5px; max-width:280px;">
-                {{ s.justification }}
-                {% if s.proposed_columns %}
-                <details style="margin-top:6px;">
-                    <summary style="cursor:pointer; color:#2d5a2d; font-weight:bold;">
-                        Voir l'ébauche de structure proposée ({{ s.proposed_columns|length }} colonnes)
-                    </summary>
-                    <div style="margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:10.5px; background:#f7f7f7; padding:8px; border-radius:3px; max-height:180px; overflow-y:auto;">
-                        <div style="font-weight:bold; margin-bottom:4px;">
-                            Table racine suggérée : {{ s.proposed_root_name or "?" }}
-                        </div>
-                        {% for col in s.proposed_columns %}
-                        <div>{{ col.name }} — {{ col.sql_type }}
-                            <span style="color:var(--gray-600);">(&lt;{{ col.source_tag }}&gt;)</span>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    <p style="font-size:10.5px; color:var(--gray-600); margin-top:4px;">
-                        Ébauche purement indicative -- à copier manuellement dans un
-                        nouveau fichier .xsd dans data/xsd/ si tu veux prendre en
-                        charge ce type de document. Rien n'est créé automatiquement.
-                    </p>
-                </details>
-                {% endif %}
-            </td>
-            <td>
-                <div style="display:flex; gap:6px;">
-                    <form action="/schemas" method="post" style="margin:0;">
-                        <input type="hidden" name="action" value="validate_suggestion">
-                        <input type="hidden" name="suggestion_id" value="{{ s.id }}">
-                        <button type="submit" class="stampbtn outline" style="white-space:nowrap;">Valider</button>
-                    </form>
-                    <form action="/schemas" method="post" style="margin:0;">
-                        <input type="hidden" name="action" value="reject_suggestion">
-                        <input type="hidden" name="suggestion_id" value="{{ s.id }}">
-                        <button type="submit" class="stampbtn outline" style="white-space:nowrap; border-color:#d98a8a; color:#7a2020;">Rejeter</button>
-                    </form>
-                </div>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% endif %}
-
 <table class="ledger">
     <thead>
         <tr>
-            <th>Schéma</th>
+            <th>Table racine</th>
             <th>Fichier XSD</th>
-            <th>Nom personnalisé actuel</th>
+            <th>Tables</th>
+            <th>Statut</th>
+            <th>Créé le</th>
             <th>Action</th>
         </tr>
     </thead>
     <tbody>
-        {% for xsd in xsd_list %}
-        <tr{% if xsd.no_root_detected %} style="opacity:0.65;"{% endif %}>
-            <td>
-                <strong>{{ xsd.label }}</strong>
-
-                {% if xsd.no_root_detected %}
-                <div style="margin-top:4px;">
-                    <span style="color:var(--gray-600); font-size:11px;">
-                        ℹ️ Aucun élément racine détecté — probablement une bibliothèque
-                        de types (complexType/simpleType) importée par un autre XSD,
-                        pas un schéma de document à part entière.
-                    </span>
-                </div>
-                {% endif %}
-
-                {% if xsd.duplicate_of %}
-                <div style="margin-top:4px;">
-                    <span class="badge" style="background:#fff3cd; border:1px solid #ffc107; color:#7a5c00; padding:2px 6px; border-radius:3px; font-size:10.5px; display:inline-block;">
-                        ⚠️ Copie de {{ xsd.duplicate_of }}
-                        {% if xsd.similarity_score %} (similarité {{ (xsd.similarity_score * 100)|int }}%){% endif %}
-                    </span>
-                </div>
-                {% endif %}
-
-                {% if xsd.change_warning %}
-                <div style="margin-top:4px; color:#b45309; font-size:11px; max-width:320px;">
-                    {{ xsd.change_warning }}
-                </div>
-                {% endif %}
-
-                <div style="font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--gray-600); margin-top:2px;">
-                    {{ xsd.schema_key }}
+        {% for s in schemas_list %}
+        <tr>
+            <td><strong>{{ s.root_table or s.root_name }}</strong></td>
+            <td>{{ s.xsd_filename }}</td>
+            <td style="font-family:'JetBrains Mono', monospace; font-size:10.5px;">
+                {{ s.table_names|length }} table(s)
+                <div style="color:var(--gray-600); max-width:280px;">
+                    {{ s.table_names|join(", ") }}
                 </div>
             </td>
-            <td>{{ xsd.xsd_filename }}</td>
             <td>
-                {% if xsd.custom_name %}
-                    <span class="badge ok">{{ xsd.custom_name }}</span>
+                {% if s.missing_tables %}
+                <span class="badge" style="background:#fbe9e9; border:1px solid #d98a8a; color:#7a2020; padding:2px 6px; border-radius:3px; font-size:10.5px; display:inline-block;">
+                    ⚠️ {{ s.missing_tables|length }} table(s) manquante(s)
+                </span>
                 {% else %}
-                    <span style="color:var(--gray-600);">— (nom automatique)</span>
+                <span class="badge ok">OK</span>
                 {% endif %}
             </td>
+            <td style="font-size:11px; color:var(--gray-600);">
+                {{ s.date_creation.strftime('%d/%m/%Y %H:%M') }}
+            </td>
             <td>
-                {% if xsd.no_root_detected %}
-                <span style="color:var(--gray-600); font-size:11px;">Aucune action possible</span>
+                {% if s.missing_tables %}
+                <span style="color:var(--gray-600); font-size:11px;">
+                    Recrée via le Générateur DDL avant de renommer
+                </span>
                 {% else %}
-                <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-                    <!-- Créer : ne touche jamais au nom, respecte juste le
-                         nom personnalisé déjà enregistré s'il y en a un.
-                         Synchronise aussi les nouvelles colonnes si le XSD
-                         a changé (ALTER TABLE ADD COLUMN automatique). -->
-                    <form action="/schemas" method="post" style="margin:0;">
-                        <input type="hidden" name="schema_key" value="{{ xsd.schema_key }}">
-                        <input type="hidden" name="action" value="create">
-                        <button type="submit" class="stampbtn outline" style="white-space:nowrap;">
-                            Créer / Mettre à jour les tables
-                        </button>
-                    </form>
-
-                    <!-- Renommer : exige que la table existe déjà, exige un
-                         nom non vide, fait un vrai ALTER TABLE RENAME. -->
-                    <form action="/schemas" method="post" style="display:flex; gap:6px; margin:0;">
-                        <input type="hidden" name="schema_key" value="{{ xsd.schema_key }}">
-                        <input type="hidden" name="action" value="rename">
-                        <input
-                            type="text"
-                            name="custom_name"
-                            placeholder="Nouveau nom de table racine"
-                            required
-                            maxlength="30"
-                            style="font-family:Arial,sans-serif; font-size:12px; padding:4px 8px; border:1px solid var(--gray-400); border-radius:3px;"
-                        >
-                        <button type="submit" class="stampbtn" style="white-space:nowrap;">
-                            Renommer
-                        </button>
-                    </form>
-
-                    {% if xsd.change_warning %}
-                    <!-- Valider le changement : n'effectue AUCUNE opération
-                         sur les tables -- met juste à jour le hash de
-                         référence pour faire disparaître l'alerte une fois
-                         que l'opérateur a vérifié la situation. La création/
-                         synchronisation des colonnes se fait via le bouton
-                         "Créer / Mettre à jour les tables" ci-dessus. -->
-                    <form action="/schemas" method="post" style="margin:0;">
-                        <input type="hidden" name="schema_key" value="{{ xsd.schema_key }}">
-                        <input type="hidden" name="action" value="acknowledge">
-                        <button type="submit" class="stampbtn outline" style="white-space:nowrap; border-color:#ffc107; color:#7a5c00;">
-                            Valider la nouvelle structure
-                        </button>
-                    </form>
-                    {% endif %}
-                </div>
+                <form action="/schemas" method="post" style="display:flex; gap:6px; margin:0;">
+                    <input type="hidden" name="id_historique" value="{{ s.id_historique }}">
+                    <input
+                        type="text"
+                        name="custom_name"
+                        placeholder="Nouveau nom de table racine"
+                        required
+                        maxlength="30"
+                        style="font-family:Arial,sans-serif; font-size:12px; padding:4px 8px; border:1px solid var(--gray-400); border-radius:3px;"
+                    >
+                    <button type="submit" class="stampbtn" style="white-space:nowrap;">
+                        Renommer
+                    </button>
+                </form>
                 {% endif %}
             </td>
         </tr>
         {% else %}
         <tr>
-            <td colspan="4" style="color:var(--gray-600);">Aucun XSD détecté.</td>
+            <td colspan="6" style="color:var(--gray-600);">
+                Aucun schéma créé pour l'instant -- utilise le
+                <a href="{{ url_for('ddl.index') }}">Générateur DDL</a>.
+            </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
-
-<p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:16px;">
-    « Créer / Mettre à jour les tables » ne renomme jamais rien -- elle crée
-    les tables manquantes en respectant le nom déjà configuré s'il y en a
-    un, et ajoute automatiquement les colonnes manquantes si le XSD a
-    évolué depuis la dernière fois (ALTER TABLE ADD COLUMN). « Renommer »
-    exige que la table existe déjà (crée-la d'abord si besoin) et effectue
-    un vrai renommage (ALTER TABLE RENAME) : les données et les liens avec
-    les tables enfants sont conservés. Un nom déjà pris par une autre table
-    entraîne un refus explicite plutôt qu'une écriture silencieuse dans la
-    mauvaise table. Un fichier XSD identique ou très similaire à un schéma
-    déjà connu est affiché avec un badge « Copie de... » plutôt que d'être
-    masqué -- il reste visible même s'il n'apporte rien de nouveau.
-</p>
 {% endblock %}

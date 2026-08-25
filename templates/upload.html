@@ -7,31 +7,51 @@
 
 <div class="upload-box">
     <p>
-        Les fichiers rejoignent le dossier <span class="mono">a_traiter</span> sans traitement immédiat.
-        Ils seront pris en compte au prochain passage automatique du scheduler,
-        ou via le bouton "Traiter maintenant" du tableau de bord.
+        Dépose un ou plusieurs fichiers XML, choisis le schéma XSD correspondant
+        (déjà utilisé via le <a href="{{ url_for('ddl.index') }}">Générateur DDL</a>),
+        et le contenu de chaque XML sera inséré dans les tables Oracle déjà créées pour ce schéma.
     </p>
 
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
 
-    {% if success %}
-    <div class="alert alert-success">Fichier(s) déposé(s) : {{ success|join(", ") }}</div>
+    {% if success_insertion %}
+    <div class="alert alert-success">{{ success_insertion }}</div>
     {% endif %}
 
-    <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
+    <form action="{{ url_for('main.inserer_donnees') }}" method="post" enctype="multipart/form-data" id="upload-form">
         <label class="dropzone" id="dropzone" for="file-input">
             <div class="dz-icon">⇩</div>
             <div class="dz-text"><b>Cliquez pour choisir</b> ou glissez-déposez un ou plusieurs fichiers ici</div>
             <div class="dz-hint">Fichiers .xml uniquement</div>
         </label>
-        <input type="file" name="xml_file" id="file-input" accept=".xml" multiple required>
+        <input type="file" name="xml_file_insertion" id="file-input" accept=".xml" multiple required>
 
         <div class="dz-selected" id="dz-selected">
             <div id="dz-filelist" style="flex:1;"></div>
             <button type="button" class="dz-remove" id="dz-remove">retirer</button>
         </div>
+
+        <label for="id_historique" style="margin-top: 20px; display: block;">Schéma XSD déjà utilisé</label>
+        {% if xsd_historique %}
+        <select name="id_historique" id="id_historique" required>
+            <option value="">-- Choisir un schéma --</option>
+            {% for h in xsd_historique %}
+                <option value="{{ h.id_historique }}">
+                    {{ h.root_name }} — {{ h.xsd_filename }} ({{ h.date_creation.strftime('%d/%m/%Y %H:%M') }})
+                </option>
+            {% endfor %}
+        </select>
+        {% else %}
+        <p class="dz-hint">Aucun schéma n'a encore été créé.</p>
+        {% endif %}
+
+        <p class="dz-hint" style="margin-top: 8px;">
+            Le schéma que tu cherches n'est pas dans la liste ?
+            <a href="{{ url_for('ddl.index') }}">Ajoute-le d'abord via le Générateur DDL</a>
+            (mêmes étapes : dépose le XSD + un XML d'exemple, choisis les tables à créer).
+        </p>
 
         <div class="actionbar">
             <button type="submit" class="stampbtn">Déposer</button>

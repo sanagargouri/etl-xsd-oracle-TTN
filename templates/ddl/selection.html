@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Tables détectées{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='ddl/style.css') }}">
+{% endblock %}
+
+{% block content %}
+  <h2>Tables détectées pour "{{ root_name }}"</h2>
+  <p class="subtitle">Coche les tables à créer, choisis les clés si besoin</p>
+
+  <p>Seules les tables cochées seront créées. Pour les tables filles, choisis dans la liste la colonne de la table parente qui doit servir de clé de liaison (à la place de l'ID généré par défaut).</p>
+
+  <form action="{{ url_for('ddl.generer') }}" method="post">
+    <input type="hidden" name="token" value="{{ token }}">
+
+    {% for t in tables %}
+      <div class="table-row">
+        <label>
+          <input type="checkbox" name="selected_tables" value="{{ t.index }}" checked>
+          {{ t.display_name }}
+          <span class="nb-cols">({{ t.nb_columns }} colonnes)</span>
+        </label>
+        {% if t.has_parent %}
+          <div class="fk-field">
+            Clé de liaison vers la table parente :
+            <select name="fk_{{ t.index }}">
+              <option value="{{ t.default_fk }}">(par défaut) {{ t.default_fk }} - ID généré</option>
+              {% for col in t.parent_columns %}
+                <option value="{{ col.value }}">{{ col.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="fk-field">
+            Colonne locale à combiner (clé composite) :
+            <select name="pklocal_{{ t.index }}">
+              <option value="">(aucune - garder l'ID généré pour cette table)</option>
+              {% for col in t.own_columns %}
+                <option value="{{ col.value }}">{{ col.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <button type="submit">Create table</button>
+  </form>
+{% endblock %}

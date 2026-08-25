@@ -17,6 +17,7 @@ from web import stats
 from web import schema_info
 from web import table_browser
 from web import schema_manager
+from web import ddl_oracle
 
 main_bp = Blueprint("main", __name__)
 
@@ -121,13 +122,17 @@ def retirer_du_lot():
 
 @main_bp.route("/upload", methods=["GET", "POST"])
 def upload():
+    # Liste des XSD deja utilises dans le generateur DDL (pour la deuxieme
+    # section de cette page : inserer un XML dans des tables existantes).
+    xsd_historique = ddl_oracle.list_historique()
+
     if request.method == "GET":
-        return render_template("upload.html")
+        return render_template("upload.html", xsd_historique=xsd_historique)
 
     uploaded_files = [f for f in request.files.getlist("xml_file") if f and f.filename]
 
     if not uploaded_files:
-        return render_template("upload.html", error="Aucun fichier sélectionné.")
+        return render_template("upload.html", error="Aucun fichier sélectionné.", xsd_historique=xsd_historique)
 
     deposited = []
     errors = []
@@ -154,6 +159,71 @@ def upload():
         "upload.html",
         success=deposited if deposited else None,
         error=("Fichier(s) refusé(s) : " + ", ".join(errors)) if errors else None,
+        xsd_historique=xsd_historique,
+    )
+
+
+@main_bp.route("/upload/inserer-donnees", methods=["POST"])
+def inserer_donnees():
+    """
+    Flux de la page "Deposer un fichier" : l'utilisateur choisit un XSD
+    deja utilise dans le generateur DDL (liste deroulante alimentee par
+    DDL_XSD_HISTORIQUE), et depose un ou plusieurs XML. Les fichiers
+    rejoignent le dossier a_traiter comme avant (traites par le scheduler
+    / bouton "Traiter maintenant"), mais chacun est associe au schema
+    choisi ici -- plus de detection automatique du type de document,
+    c'est l'utilisateur qui decide au moment du depot.
+    """
+    xsd_historique = ddl_oracle.list_historique()
+
+    id_historique = request.form.get("id_historique")
+    xml_files = [f for f in request.files.getlist("xml_file_insertion") if f and f.filename]
+
+    if not id_historique:
+        return render_template(
+            "upload.html", error="Choisis un schema deja utilise avant de deposer le(s) XML.",
+            xsd_historique=xsd_historique,
+        )
+    if not xml_files:
+        return render_template(
+            "upload.html", error="Merci de deposer au moins un fichier XML.",
+            xsd_historique=xsd_historique,
+        )
+
+    deposited = []
+    errors = []
+
+    for xml_file in xml_files:
+        filename = secure_filename(xml_file.filename)
+
+        if not filename.lower().endswith(".xml"):
+            errors.append(f"{xml_file.filename} (extension refusee)")
+            continue
+
+        destination = os.path.join(config.XML_A_TRAITER, filename)
+
+        if os.path.exists(destination):
+            name, ext = os.path.splitext(filename)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{name}_{timestamp}{ext}"
+            destination = os.path.join(config.XML_A_TRAITER, filename)
+
+        xml_file.save(destination)
+        ddl_oracle.queue_file_for_schema(filename, int(id_historique))
+        deposited.append(filename)
+
+    success_insertion = None
+    if deposited:
+        success_insertion = (
+            f"Fichier(s) depose(s) : {', '.join(deposited)}. Ils seront inseres dans les "
+            f"tables Oracle au prochain passage du scheduler, ou via 'Traiter maintenant'."
+        )
+
+    return render_template(
+        "upload.html",
+        success_insertion=success_insertion,
+        error=("Fichier(s) refuse(s) : " + ", ".join(errors)) if errors else None,
+        xsd_historique=xsd_historique,
     )
 
 
@@ -239,83 +309,26 @@ def tables_oracle_export():
 @main_bp.route("/schemas", methods=["GET", "POST"])
 def schemas():
     """
-    Page "Gérer les schémas" : crée les tables Oracle pour un XSD connu,
-    avec un nom personnalisé optionnel pour sa table racine. Ce choix est
-    ensuite réutilisé automatiquement par le scheduler pour tous les
-    futurs dépôts XML du même type (cf. batch_loader._load_custom_root_names).
-
-    Actions possibles (form field "action") :
-        "create"      -> crée les tables manquantes, et synchronise les
-                         nouvelles colonnes si le XSD a changé depuis
-                         (ALTER TABLE ADD COLUMN automatique).
-        "rename"      -> renomme la table racine déjà existante.
-        "acknowledge" -> valide manuellement un changement de XSD détecté
-                         (met à jour le hash de référence en base, sans
-                         toucher aux tables elles-mêmes -- l'alerte
-                         disparaît, mais les colonnes ne sont synchronisées
-                         que via "create").
+    Page "Gérer les schémas" : liste les schémas créés via le Générateur
+    DDL et permet de renommer la table racine d'un schéma déjà créé
+    (renommage en cascade sur toutes ses tables filles).
     """
     message = None
     error = None
 
     if request.method == "POST":
-        schema_key = request.form.get("schema_key")
-        action = request.form.get("action")  # "create", "rename", "acknowledge",
-                                              # "validate_suggestion" ou "reject_suggestion"
-
+        id_historique = request.form.get("id_historique")
+        new_name = (request.form.get("custom_name") or "").strip()
         try:
-            if action == "rename":
-                new_name = (request.form.get("custom_name") or "").strip()
-                schema_manager.rename_schema_root(schema_key, new_name)
-                message = f"Table racine de {schema_key} renommée en {new_name.upper()}"
-
-            elif action == "acknowledge":
-                xsd_list = {x["schema_key"]: x["xsd_path"] for x in schema_manager.list_available_xsd()}
-                xsd_path = xsd_list.get(schema_key)
-                if not xsd_path:
-                    raise ValueError(f"Schéma inconnu : {schema_key}")
-                schema_manager.acknowledge_schema_change(schema_key, xsd_path)
-                message = (
-                    f"Nouvelle structure de {schema_key} validée. "
-                    f"Pense à cliquer sur « Créer / Mettre à jour les tables » "
-                    f"si de nouvelles colonnes doivent être ajoutées."
-                )
-
-            elif action == "validate_suggestion":
-                suggestion_id = int(request.form.get("suggestion_id"))
-                result = schema_manager.validate_suggestion(suggestion_id)
-                if result["alias_created"] and result["file_requeued"]:
-                    message = (
-                        "Suggestion IA validée. Cette racine sera désormais reconnue "
-                        "automatiquement, et le fichier source a été replacé dans "
-                        "a_traiter/ pour être retraité."
-                    )
-                elif result["alias_created"]:
-                    message = (
-                        "Suggestion IA validée. Cette racine sera désormais reconnue "
-                        "automatiquement (le fichier source n'a pas pu être retrouvé "
-                        "dans erreurs/ pour être retraité automatiquement)."
-                    )
-                else:
-                    message = "Suggestion IA validée."
-
-            elif action == "reject_suggestion":
-                suggestion_id = int(request.form.get("suggestion_id"))
-                schema_manager.reject_suggestion(suggestion_id)
-                message = "Suggestion IA rejetée."
-
-            else:
-                schema_manager.create_tables_for_schema(schema_key)
-                message = f"Tables créées/mises à jour pour {schema_key}"
+            schema_manager.rename_schema_root(int(id_historique), new_name)
+            message = f"Schéma renommé en {new_name.upper()}"
         except Exception as e:
             error = str(e)
 
-    xsd_list = schema_manager.list_available_xsd()
-    pending_suggestions = schema_manager.list_pending_suggestions()
+    schemas_list = schema_manager.list_schemas()
     return render_template(
         "schemas.html",
-        xsd_list=xsd_list,
-        pending_suggestions=pending_suggestions,
+        schemas_list=schemas_list,
         message=message,
         error=error,
     )

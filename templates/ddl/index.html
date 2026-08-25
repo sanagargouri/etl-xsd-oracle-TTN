@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Générateur DDL{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='ddl/style.css') }}">
+{% endblock %}
+
+{% block content %}
+  <h2>Générateur de tables Oracle</h2>
+  <p class="subtitle">Dépôt XSD + XML — extraction générique, aucune base de données</p>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}
+        <div class="flash">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form action="{{ url_for('ddl.analyser') }}" method="post" enctype="multipart/form-data" id="upload-form">
+    <label for="xsd_file">Fichier XSD (n'importe quel schéma)</label>
+    <div class="drop-zone" id="dz-xsd">
+      <div class="dz-text">Glisse ton fichier .xsd ici, ou clique pour parcourir</div>
+      <div class="dz-filename" id="dz-xsd-name"></div>
+      <input type="file" id="xsd_file" name="xsd_file" accept=".xsd" required>
+    </div>
+
+    <label for="xml_file">Fichier XML correspondant</label>
+    <div class="drop-zone" id="dz-xml">
+      <div class="dz-text">Glisse ton fichier .xml ici, ou clique pour parcourir</div>
+      <div class="dz-filename" id="dz-xml-name"></div>
+      <input type="file" id="xml_file" name="xml_file" accept=".xml" required>
+    </div>
+
+    <label for="root_name">Nom de la table (avant extraction)</label>
+    <input type="text" id="root_name" name="root_name" placeholder="ex: titre" required>
+
+    <button type="submit">Analyser</button>
+  </form>
+
+  <script>
+    function setupDropZone(zoneId, inputId, filenameId) {
+      const zone = document.getElementById(zoneId);
+      const input = document.getElementById(inputId);
+      const filenameEl = document.getElementById(filenameId);
+
+      zone.addEventListener('click', () => input.click());
+
+      input.addEventListener('change', () => {
+        if (input.files.length > 0) {
+          filenameEl.textContent = '✓ ' + input.files[0].name;
+          filenameEl.style.display = 'block';
+        }
+      });
+
+      ['dragenter', 'dragover'].forEach(evt => {
+        zone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          zone.classList.add('dragover');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach(evt => {
+        zone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          zone.classList.remove('dragover');
+        });
+      });
+
+      zone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          input.files = files;
+          filenameEl.textContent = '✓ ' + files[0].name;
+          filenameEl.style.display = 'block';
+        }
+      });
+    }
+
+    setupDropZone('dz-xsd', 'xsd_file', 'dz-xsd-name');
+    setupDropZone('dz-xml', 'xml_file', 'dz-xml-name');
+  </script>
+{% endblock %}

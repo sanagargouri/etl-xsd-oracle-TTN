@@ -1,76 +1,47 @@
 """
 web/schema_info.py
 
-Extrait la correspondance réelle schéma XSD -> tables Oracle, en réutilisant
-directement XSDParser / XSDParserTCE (src/) — aucune logique de parsing
-dupliquée ici, et aucune connexion Oracle nécessaire : la correspondance
-est déterminée au moment du parsing du XSD, pas de l'insertion des données.
+Résume, pour le dashboard, chaque schéma créé via le Générateur DDL /
+Déposer un fichier : son nom (racine) et la liste de ses tables Oracle.
 
-Depuis l'ajout de la détection automatique de schéma (TEIF vs DOCUMENT/TCE),
-il y a désormais DEUX schémas à résumer, pas un seul -> get_schema_summary()
-retourne une LISTE de résumés (un par schéma) au lieu d'un unique dict.
+Lit directement DDL_XSD_HISTORIQUE / DDL_XSD_TABLE_CONFIG (ddl_oracle.py)
+-- plus de dépendance à un XSD fixe (TEIF/TCE) : tout schéma créé
+apparaît ici automatiquement.
 """
 
-import os
-
-from src.xsd_parser import XSDParser
-from src.xsd_parser_tce import XSDParserTCE
-import config
-
-
-def _summarize_one(xsd_path, parser_cls, label):
-    """
-    Construit le résumé d'un seul schéma XSD : sa table racine et ses
-    colonnes, plus le nombre total de tables générées.
-    """
-    parser = parser_cls(xsd_path)
-    tables, tag_map = parser.parse()
-
-    if not tables:
-        return None
-
-    root = next((t for t in tables if "parent_table" not in t), tables[0])
-
-    root_columns = []
-    for col in root["columns"]:
-        is_pk = "GENERATED ALWAYS AS IDENTITY" in col["sql_type"]
-        root_columns.append({"name": col["name"], "is_pk": is_pk})
-
-    return {
-        "label": label,
-        "xsd_filename": os.path.basename(xsd_path),
-        "root_table": root["table_name"],
-        "root_columns": root_columns,
-        "total_tables": len(tables),
-        "child_table_count": len(tables) - 1,
-    }
+from web import ddl_oracle
 
 
 def get_schema_summary():
     """
-    Retourne une LISTE de résumés (un par schéma connu : TEIF et
-    DOCUMENT/TCE), pour affichage sur le dashboard.
-
-    IMPORTANT : cette fonction retournait auparavant un dict unique
-    (un seul schéma). Elle retourne maintenant une liste de 0, 1 ou 2
-    dicts (un XSD manquant/en erreur est simplement omis plutôt que de
-    faire planter tout le dashboard) -> le template doit itérer dessus
-    plutôt que d'accéder directement à des clés comme avant.
+    Retourne une liste de résumés, un par schéma créé :
+        {"label": <nom de la racine>, "xsd_filename": ..., "tables": [...]}
+    Un schéma dont les tables auraient été supprimées depuis reste
+    affiché (avec la liste des noms attendus), pour rester visible plutôt
+    que de disparaître silencieusement.
     """
     summaries = []
-
     try:
-        s = _summarize_one(config.XSD_PATH_TEIF, XSDParser, "Facture TEIF")
-        if s:
-            summaries.append(s)
-    except Exception as e:
-        print(f"[schema_info] Erreur lors du résumé du schéma TEIF : {e}")
+        for schema in ddl_oracle.list_historique():
+            id_historique = schema["id_historique"]
+            loader = ddl_oracle.connect()
+            try:
+                ddl_oracle.ensure_meta_tables(loader)
+                loader.cursor.execute(
+                    "SELECT table_name FROM DDL_XSD_TABLE_CONFIG "
+                    "WHERE id_historique = :1 ORDER BY ordre",
+                    [id_historique],
+                )
+                table_names = [row[0] for row in loader.cursor.fetchall()]
+            finally:
+                loader.disconnect()
 
-    try:
-        s = _summarize_one(config.XSD_PATH_TCE, XSDParserTCE, "Document TCE (TTN)")
-        if s:
-            summaries.append(s)
+            summaries.append({
+                "label": schema["root_name"],
+                "xsd_filename": schema["xsd_filename"],
+                "tables": table_names,
+            })
     except Exception as e:
-        print(f"[schema_info] Erreur lors du résumé du schéma TCE : {e}")
+        print(f"[schema_info] Erreur lors du résumé des schémas : {e}")
 
     return summaries

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Tables générées{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='ddl/style.css') }}">
+{% endblock %}
+
+{% block content %}
+  <h2>Tables générées</h2>
+  <p class="subtitle">Remplies avec les données réelles du XML</p>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}
+        <div class="flash">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% for t in tables_data %}
+    <h3>{{ t.nom }} ({{ t.rows|length }} ligne{{ 's' if t.rows|length != 1 else '' }})</h3>
+    {% if t.rows %}
+      <div class="scroll-x">
+        <table>
+          <tr>
+            {% for h in t.headers %}<th>{{ h }}</th>{% endfor %}
+          </tr>
+          {% for row in t.rows %}
+            <tr>
+              {% for val in row %}<td>{{ val if val != "" else "&mdash;"|safe }}</td>{% endfor %}
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
+    {% else %}
+      <div class="vide">Aucune ligne pour cette table dans ce XML.</div>
+    {% endif %}
+  {% endfor %}
+
+  <details>
+    <summary>Voir les requêtes CREATE TABLE (SQL)</summary>
+    <pre>{{ ddl_text }}</pre>
+  </details>
+
+  <a class="retour" href="{{ url_for('ddl.index') }}">&larr; Nouveau dépôt</a>
+{% endblock %}

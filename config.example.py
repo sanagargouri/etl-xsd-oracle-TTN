@@ -22,12 +22,7 @@ DB_USERNAME = os.environ.get("DB_USERNAME", "changeme")
 DB_PASSWORD = os.environ.get("DB_PASSWORD")  # obligatoire, pas de valeur par défaut
 DB_DSN = os.environ.get("DB_DSN", "localhost:1521/orcl")
 
-GEMINI_API_KEY = "your-gemini-api-key-here"
-
 # --- Chemins ---
-XSD_PATH_TEIF = os.path.join(BASE_DIR, "data", "xsd", "facture_INVOIC_V1.8.8_withSig.xsd")
-XSD_PATH_TCE = os.path.join(BASE_DIR, "data", "xsd", "tce.xsd")
-
 XML_A_TRAITER = os.path.join(BASE_DIR, "data", "xml", "a_traiter")
 XML_TRAITES = os.path.join(BASE_DIR, "data", "xml", "traites")
 XML_ERREURS = os.path.join(BASE_DIR, "data", "xml", "erreurs")

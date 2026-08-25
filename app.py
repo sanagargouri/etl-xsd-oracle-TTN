@@ -1,8 +1,8 @@
 """
 app.py
 
-Point d'entrée unique de l'application : lance Flask ET le scheduler ETL
-dans le même processus. Remplace l'ancien scheduler.py autonome.
+Point d'entrée unique de l'application : lance Flask, le scheduler ETL,
+ET le générateur DDL (ex-app2) dans le même processus.
 
 Lancement : python app.py
 """
@@ -14,10 +14,12 @@ from flask import Flask
 import config
 from web.scheduler_manager import SchedulerManager
 from web.routes import main_bp
+from web.ddl_generator import ddl_bp
 
 
 def create_app():
     app = Flask(__name__)
+    app.secret_key = "dev-secret-key"  # a changer en prod (utilisee par flash() du module ddl)
 
     # Heure de démarrage de CE lancement de app.py — sert à filtrer
     # les fichiers "Terminé" affichés sur le dashboard (uniquement ceux
@@ -25,13 +27,7 @@ def create_app():
     app.config["APP_START_TIME"] = datetime.now()
 
     # --- Scheduler : une seule instance, créée et démarrée ici ---
-    # Le type de chaque fichier XML (TEIF ou DOCUMENT/TCE, ou tout futur
-    # type détecté automatiquement) est déterminé individuellement par
-    # document_router.py -> on fournit les deux XSD connus, plus de
-    # xsd_path unique fixe.
     scheduler = SchedulerManager(
-        xsd_teif_path=config.XSD_PATH_TEIF,
-        xsd_tce_path=config.XSD_PATH_TCE,
         xml_folder=config.XML_A_TRAITER,
         dossier_traites=config.XML_TRAITES,
         dossier_erreurs=config.XML_ERREURS,
@@ -42,17 +38,15 @@ def create_app():
     )
     scheduler.start()
 
-    # Stocké sur app.config : accessible depuis les routes via
-    # current_app.config["SCHEDULER"], sans variable globale de module.
     app.config["SCHEDULER"] = scheduler
 
     app.register_blueprint(main_bp)
+    # Generateur DDL (ex-app2), monte sous /ddl/...
+    app.register_blueprint(ddl_bp, url_prefix="/ddl")
 
     return app
 
 
 if __name__ == "__main__":
     app = create_app()
-    # use_reloader=False : évite qu'une modification de code en cours de test
-    # ne redémarre le processus et ne tue le scheduler + son minutage en cours.
     app.run(debug=True, use_reloader=False)
