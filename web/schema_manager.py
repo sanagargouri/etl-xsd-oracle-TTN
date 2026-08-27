@@ -86,6 +86,14 @@ def rename_schema_root(id_historique, new_root_name):
     construit à partir du préfixe de la racine (ex: TITRE, TITRE_ARTICLE,
     TITRE_PIECES_JOINTE...). Renommer uniquement la racine casserait le
     lien avec ses filles au prochain dépôt XML pour ce schéma.
+
+    Propage aussi le renommage aux colonnes ID_<ancien_nom> generees par
+    Oracle -- a la fois sur la table qui possede cette colonne comme sa
+    propre cle, ET sur toute table fille qui l'utilise comme colonne de
+    liaison (FK) vers son parent -- sinon le prochain depot XML echoue
+    avec ORA-00904 des que le code cherche ID_<nouveau_nom>. Les tables
+    creees avec une cle naturelle (own_pk_columns) n'ont pas de colonne
+    ID_<nom> et sont ignorees silencieusement (rien a renommer pour elles).
     """
     new_root_name = _validate_name(new_root_name)
 
@@ -138,9 +146,48 @@ def rename_schema_root(id_historique, new_root_name):
                     )
             rename_pairs.append((table_name, new_name))
 
+        rename_map = {old: new for old, new in rename_pairs if old != new}
+
         for old_name, new_name in rename_pairs:
             if old_name != new_name:
                 loader.cursor.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
+
+        # Renomme les colonnes ID_<ancien_nom> impactees par le renommage :
+        # 1. sur chaque table renommee, si elle a sa propre colonne
+        #    ID_<ancien_nom_de_cette_meme_table> (cle auto-generee)
+        for old_name, new_name in rename_pairs:
+            old_id_col = f"ID_{old_name}"
+            new_id_col = f"ID_{new_name}"
+            if old_id_col == new_id_col:
+                continue
+
+            loader.cursor.execute(
+                "SELECT COUNT(*) FROM user_tab_columns "
+                "WHERE table_name = :1 AND column_name = :2",
+                [new_name, old_id_col],
+            )
+            if loader.cursor.fetchone()[0] > 0:
+                loader.cursor.execute(
+                    f"ALTER TABLE {new_name} RENAME COLUMN {old_id_col} TO {new_id_col}"
+                )
+
+        # 2. sur chaque table fille qui a une colonne ID_<ancien_nom_du_parent>
+        #    servant de FK vers un parent qui vient d'etre renomme
+        for table_name, parent_table in rows:
+            if parent_table is None or parent_table not in rename_map:
+                continue
+            current_table_name = rename_map.get(table_name, table_name)
+            old_fk_col = f"ID_{parent_table}"
+            new_fk_col = f"ID_{rename_map[parent_table]}"
+            loader.cursor.execute(
+                "SELECT COUNT(*) FROM user_tab_columns "
+                "WHERE table_name = :1 AND column_name = :2",
+                [current_table_name, old_fk_col],
+            )
+            if loader.cursor.fetchone()[0] > 0:
+                loader.cursor.execute(
+                    f"ALTER TABLE {current_table_name} RENAME COLUMN {old_fk_col} TO {new_fk_col}"
+                )
 
         # Met à jour les métadonnées (DDL_XSD_TABLE_CONFIG + DDL_XSD_HISTORIQUE)
         for old_name, new_name in rename_pairs:

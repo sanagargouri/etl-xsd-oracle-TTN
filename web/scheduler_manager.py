@@ -19,12 +19,13 @@ JOB_ID = "etl_job"
 
 
 def run_etl_job(xml_folder, dossier_traites, dossier_erreurs,
-                 db_username, db_password, db_dsn):
+                 db_username, db_password, db_dsn, dates_par_type=None):
     """
     Exécute UN passage complet du pipeline ETL :
-    ouvre une connexion Oracle, traite le dossier a_traiter (chaque
-    fichier utilise le schéma choisi manuellement au dépôt, via la file
-    d'attente DDL_XSD_PENDING_FILES -- plus de détection automatique),
+    ouvre une connexion Oracle, synchronise TITRE/TCE avec LIASSE.DOSSIER
+    (une periode de dates par schema, configuree sur le dashboard),
+    traite le dossier a_traiter (chaque fichier utilise le schéma choisi
+    manuellement au dépôt, via la file d'attente DDL_XSD_PENDING_FILES),
     ferme la connexion.
 
     Appelée à la fois par le scheduler (passage automatique) et par
@@ -37,6 +38,7 @@ def run_etl_job(xml_folder, dossier_traites, dossier_erreurs,
         process_batch(
             xml_folder=xml_folder,
             loader=loader,
+            dates_par_type=dates_par_type,
             dossier_traites=dossier_traites,
             dossier_erreurs=dossier_erreurs,
         )
@@ -45,12 +47,13 @@ def run_etl_job(xml_folder, dossier_traites, dossier_erreurs,
 
 
 def trigger_now(xml_folder, dossier_traites, dossier_erreurs,
-                 db_username, db_password, db_dsn):
+                 db_username, db_password, db_dsn, dates_par_type=None):
     """
     Déclenchement manuel via le bouton "Traiter maintenant".
     Ne touche pas au planning du scheduler (n'avance ni ne retarde le
     prochain passage automatique) : c'est un passage en plus, pas un
-    remplacement.
+    remplacement. Utilise la meme periode de dates que le passage
+    automatique (configuree sur le dashboard).
     """
     run_etl_job(
         xml_folder=xml_folder,
@@ -59,18 +62,21 @@ def trigger_now(xml_folder, dossier_traites, dossier_erreurs,
         db_username=db_username,
         db_password=db_password,
         db_dsn=db_dsn,
+        dates_par_type=dates_par_type,
     )
 
 
 class SchedulerManager:
     """
     Encapsule le BackgroundScheduler et expose des méthodes simples
-    pour web/routes.py : start, pause, resume, change_interval, get_status.
+    pour web/routes.py : start, pause, resume, change_interval,
+    change_dates, get_status.
     """
 
     def __init__(self, xml_folder, dossier_traites, dossier_erreurs,
                  db_username, db_password, db_dsn, interval_minutes):
         self._scheduler = BackgroundScheduler()
+        self._dates_par_type = {}  # ex: {"TITRE": ("2010-01-01","2010-12-31"), "TCE": (...)}
         self._job_kwargs = dict(
             xml_folder=xml_folder,
             dossier_traites=dossier_traites,
@@ -78,6 +84,7 @@ class SchedulerManager:
             db_username=db_username,
             db_password=db_password,
             db_dsn=db_dsn,
+            dates_par_type=self._dates_par_type,
         )
         self._interval_minutes = interval_minutes
 
@@ -109,6 +116,22 @@ class SchedulerManager:
             trigger=IntervalTrigger(minutes=total_minutes),
         )
 
+    def change_dates(self, dates_par_type):
+        """
+        Met a jour la periode de dates par schema (TITRE/TCE), utilisee
+        aussi bien par le prochain passage automatique que par le bouton
+        "Traiter maintenant". dates_par_type : dict
+        { "TITRE": (date_debut, date_fin), "TCE": (date_debut, date_fin) }
+        (un type absent = pas de synchronisation LIASSE pour ce type).
+        """
+        self._dates_par_type = dates_par_type
+        self._job_kwargs["dates_par_type"] = self._dates_par_type
+        self._scheduler.modify_job(JOB_ID, kwargs=self._job_kwargs)
+
+    def get_dates(self):
+        """Pour repeupler le formulaire du dashboard avec les valeurs actuelles."""
+        return self._dates_par_type
+
     def trigger_now(self):
         """Appelé par la route du bouton "Traiter maintenant"."""
         trigger_now(**self._job_kwargs)
@@ -124,6 +147,7 @@ class SchedulerManager:
                 "intervalle_heures": heures,
                 "intervalle_minutes_restantes": minutes,
                 "prochaine_execution": None,
+                "dates_par_type": self._dates_par_type,
             }
 
         return {
@@ -132,4 +156,5 @@ class SchedulerManager:
             "intervalle_heures": heures,
             "intervalle_minutes_restantes": minutes,
             "prochaine_execution": job.next_run_time,
+            "dates_par_type": self._dates_par_type,
         }

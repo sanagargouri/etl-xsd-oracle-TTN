@@ -376,3 +376,78 @@ def insert_xml_into_tables(id_historique, xml_path):
         return {"success": True, "inserted": total_inserted}
     finally:
         loader.disconnect()
+
+
+# ---------------------------------------------------------------
+# Synchronisation TITRE / TCE avec LIASSE.DOSSIER (demande tutrice)
+# ---------------------------------------------------------------
+
+SCHEMA_TYPES = {
+    "TITRE": {"code_type_dossier": "TCEAP", "colonne_numero_demande": "NUMERO_DEMANDE"},
+    "TCE":   {"code_type_dossier": "TCE",   "colonne_numero_demande": "REFERENCE_TTN_NUMERO_DEMANDE"},
+}
+
+
+def get_queued_root_name(filename):
+    """Retourne le root_name (table racine) associe au schema en attente pour ce fichier, ou None."""
+    loader = connect()
+    try:
+        ensure_meta_tables(loader)
+        loader.cursor.execute("""
+            SELECT h.root_name
+            FROM DDL_XSD_PENDING_FILES p
+            JOIN DDL_XSD_HISTORIQUE h ON h.id_historique = p.id_historique
+            WHERE p.filename = :1
+        """, [filename])
+        row = loader.cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        loader.disconnect()
+
+
+def sync_dossiers_liasse_pour_type(root_name, date_debut, date_fin):
+    """
+    MERGE table_racine (orcl_local) <- LIASSE.DOSSIER, pour un seul type
+    de schema (TITRE ou TCE), filtre par CODE_TYPE_DOSSIER/ACTIVITE/DATE_CREATION.
+    A executer avant le traitement des fichiers XML de ce type.
+
+    date_debut/date_fin sont recus au format 'YYYY-MM-DD' (envoye par les
+    champs <input type="date"> HTML), d'ou le TO_DATE explicite avec ce
+    masque -- sans lui Oracle tente de convertir avec le format NLS par
+    defaut de la session, qui ne correspond pas forcement (ORA-01861).
+    """
+    cfg = SCHEMA_TYPES.get(root_name)
+    if cfg is None:
+        return
+
+    loader = connect()
+    try:
+        loader.cursor.execute(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = :1", [root_name]
+        )
+        if loader.cursor.fetchone()[0] == 0:
+            return  # table pas encore creee via le generateur DDL
+
+        sql = f"""
+            MERGE INTO {root_name} t
+            USING (
+                SELECT NUMERO_DOSSIER, NUMERO_DEMANDE
+                FROM LIASSE.DOSSIER
+                WHERE CODE_TYPE_DOSSIER = :code_type
+                  AND ACTIVITE IN ('6.1','6.3')
+                  AND DATE_CREATION BETWEEN TO_DATE(:date_debut, 'YYYY-MM-DD') AND TO_DATE(:date_fin, 'YYYY-MM-DD')
+            ) d
+            ON (t.NUMERO_DOSSIER = d.NUMERO_DOSSIER)
+            WHEN MATCHED THEN
+                UPDATE SET t.{cfg['colonne_numero_demande']} = d.NUMERO_DEMANDE
+            WHEN NOT MATCHED THEN
+                INSERT (NUMERO_DOSSIER, {cfg['colonne_numero_demande']})
+                VALUES (d.NUMERO_DOSSIER, d.NUMERO_DEMANDE)
+        """
+        loader.cursor.execute(
+            sql, code_type=cfg["code_type_dossier"],
+            date_debut=date_debut, date_fin=date_fin
+        )
+        loader.connection.commit()
+    finally:
+        loader.disconnect()

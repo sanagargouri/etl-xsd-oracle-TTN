@@ -332,3 +332,17 @@ def schemas():
         message=message,
         error=error,
     )
+
+@main_bp.route("/scheduler/dates", methods=["POST"])
+def modifier_dates_schema():
+    scheduler = current_app.config["SCHEDULER"]
+
+    dates_par_type = {}
+    for root_name in ("TITRE", "TCE"):
+        debut = request.form.get(f"date_debut_{root_name}")
+        fin = request.form.get(f"date_fin_{root_name}")
+        if debut and fin:
+            dates_par_type[root_name] = (debut, fin)
+
+    scheduler.change_dates(dates_par_type)
+    return redirect(url_for("main.dashboard"))

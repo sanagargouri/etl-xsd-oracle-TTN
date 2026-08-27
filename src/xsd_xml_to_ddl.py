@@ -4,26 +4,39 @@ xsd_xml_to_ddl.py
 GENERIQUE : prend un XSD (structure) + un XML (instance reelle), et :
   1. Determine la liste des tables et de LEURS COLONNES a partir du XSD
      (structure figee par le schema, pas par ce qui existe dans tel ou
-     tel XML). Une table repetee n'apparait que si elle a au moins une
-     occurrence dans le XML, mais une fois qu'une table existe, TOUTES
-     les colonnes prevues par le XSD pour cette table sont creees --
-     meme celles absentes de ce XML precis, qui restent alors vides.
+     tel XML). Une table repetee EXISTE TOUJOURS des lors qu'elle est
+     prevue par le XSD, meme si ce XML precis n'en contient aucune
+     occurrence -- dans ce cas elle apparait avec ses colonnes mais 0
+     ligne. Une fois qu'une table existe, TOUTES les colonnes prevues
+     par le XSD pour cette table sont creees -- meme celles absentes de
+     ce XML precis, qui restent alors vides.
   2. Extrait aussi les VRAIES VALEURS de chaque occurrence du XML, pour pouvoir
      afficher chaque table remplie (comme un apercu tableur), sans base de donnees.
   3. Genere le DDL CREATE TABLE en texte pour les tables selectionnees.
 
 Regle de structure (aucune balise codee en dur, purement generique) :
-  - Un element qui peut se repeter (maxOccurs > 1) = une vraie table, une ligne
-    par occurrence reelle dans le XML.
+  - Un element qui peut se repeter (maxOccurs > 1) = une vraie table. Elle
+    existe toujours (structure du XSD), avec une ligne par occurrence
+    reelle dans le XML -- ou 0 ligne si aucune occurrence n'est presente.
   - Un element complexe a occurrence unique (simple wrapper de structuration,
     tres courant en EDIFACT/TEIF) est aplati comme colonne(s) dans la table
     parente, avec un nom de colonne qui garde le chemin d'origine. Ce wrapper
     est parcouru meme s'il est absent du XML, pour que ses colonnes existent
     quand meme (vides) -- la structure suit le XSD, pas le XML.
+  - Si le wrapper immediat d'un element repete est litteralement le pluriel
+    de son nom (ex: PIECES_JOINTES > PIECES_JOINTE, MINISTERE_COMMERCE_
+    OBSERVATIONS > MINISTERE_COMMERCE_OBSERVATION), ce wrapper est exclu du
+    chemin utilise pour nommer la table, pour eviter la duplication
+    pluriel+singulier dans le nom (ex: eviter ..._OBSERVATIONS_OBSERVATION).
   - Un element avec attributs + texte direct (xs:simpleContent) donne une
     colonne "VALEUR" pour le texte, plus une colonne par attribut.
   - Les cycles/recursions (un type qui se contient lui-meme) sont detectes et
     coupes proprement (pas de boucle infinie).
+
+Contraintes NOT NULL : uniquement sur les colonnes formant la cle primaire
+(own_pk_columns, choisies par l'utilisateur lors de la selection des tables)
+et sur les colonnes de liaison parent-enfant (integrite referentielle).
+Le minOccurs du XSD n'impose plus aucune contrainte NOT NULL.
 """
 
 import argparse
@@ -211,6 +224,10 @@ class AvailableTable:
         own_pk_columns : liste de colonnes de CETTE table formant sa cle
         primaire naturelle (simple ou composite). Si fourni (non vide),
         plus d'ID_<table> genere du tout.
+
+        Seules les colonnes de la cle primaire (own_pk_columns) et les
+        colonnes de liaison parent-enfant sont NOT NULL. Le minOccurs du
+        XSD n'impose plus aucune contrainte NOT NULL sur les autres colonnes.
         """
         own_pk_columns = own_pk_columns or []
         use_natural_fk = (
@@ -232,7 +249,7 @@ class AvailableTable:
 
         for cname, (ctype, nullable) in self.column_types.items():
             forced_not_null = cname in own_pk_columns
-            lines.append(f"{cname} {ctype}{'' if (nullable and not forced_not_null) else ' NOT NULL'}")
+            lines.append(f"{cname} {ctype}{' NOT NULL' if forced_not_null else ''}")
 
         if use_natural_pk:
             pk_cols = ", ".join(own_pk_columns)
@@ -269,6 +286,28 @@ def _process_row(schema_node, xml_elem, display_prefix, sql_prefix, parent_table
     return row_pk
 
 
+def _ensure_table_structure(schema_node, display_prefix, sql_prefix, parent_table,
+                             tables_by_name, order, leaf_name=None):
+    """
+    Enregistre une table (et ses colonnes) a partir du XSD seul, meme si
+    aucune occurrence n'existe dans ce XML precis -- la structure suit
+    toujours le XSD, jamais le XML. Aucune ligne n'est ajoutee (table.rows
+    reste vide) : cette table apparaitra dans la liste, avec ses colonnes,
+    mais 0 ligne de donnees pour ce XML.
+    """
+    table = tables_by_name.get(sql_prefix)
+    if table is None:
+        table = AvailableTable(display_prefix, sql_prefix, parent=parent_table, leaf_name=leaf_name)
+        tables_by_name[sql_prefix] = table
+        order.append(sql_prefix)
+
+    dummy_row = {}
+    _collect_row(schema_node, None, [], table, dummy_row, display_prefix, sql_prefix,
+                 tables_by_name, order, row_pk=None)
+    # dummy_row est jete volontairement : on ne veut que l'enregistrement
+    # des colonnes (via table._register), pas une fausse ligne de donnees.
+
+
 def _collect_row(schema_node, xml_elem, path, table, row, display_prefix, sql_prefix,
                   tables_by_name, order, row_pk):
     # La structure (quelles colonnes existent) suit toujours le XSD : on
@@ -297,18 +336,27 @@ def _collect_row(schema_node, xml_elem, path, table, row, display_prefix, sql_pr
     for child_schema in schema_node.table_children:
         matches = xml_children_named(xml_elem, child_schema.name)
         if child_schema.repeated:
-            # Une vraie sous-table n'est creee que s'il y a au moins une
-            # occurrence dans ce XML -- on ne peut pas afficher/creer une
-            # table dont on ne sait pas combien de lignes elle aurait.
-            if not matches:
-                continue
-            path_part = "_".join(path).lower() + "_" if path else ""
-            path_part_sql = "_".join(path).upper() + "_" if path else ""
+            # Si le wrapper immediat est litteralement le pluriel de ce
+            # nom d'element (ex: PIECES_JOINTES > PIECES_JOINTE), on
+            # l'exclut du chemin pour eviter la duplication pluriel+singulier
+            # dans le nom de la table (ex: eviter ..._OBSERVATIONS_OBSERVATION).
+            effective_path = path
+            if path and path[-1] == child_schema.name + "S":
+                effective_path = path[:-1]
+
+            # La table existe toujours (structure du XSD), meme sans
+            # occurrence dans ce XML precis -- dans ce cas elle a 0 ligne.
+            path_part = "_".join(effective_path).lower() + "_" if effective_path else ""
+            path_part_sql = "_".join(effective_path).upper() + "_" if effective_path else ""
             child_display = f"{display_prefix}.{path_part}{child_schema.name.lower()}"
             child_sql = f"{sql_prefix}_{path_part_sql}{child_schema.name.upper()}"
-            for m in matches:
-                _process_row(child_schema, m, child_display, child_sql, table, row_pk,
-                             tables_by_name, order, leaf_name=child_schema.name.upper())
+            if matches:
+                for m in matches:
+                    _process_row(child_schema, m, child_display, child_sql, table, row_pk,
+                                 tables_by_name, order, leaf_name=child_schema.name.upper())
+            else:
+                _ensure_table_structure(child_schema, child_display, child_sql, table,
+                                         tables_by_name, order, leaf_name=child_schema.name.upper())
         else:
             # Wrapper a occurrence unique : on parcourt ses colonnes meme
             # s'il est absent du XML (child_xml=None), pour que la
