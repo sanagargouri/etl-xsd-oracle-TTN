@@ -14,7 +14,7 @@
 <table class="ledger">
     <thead>
         <tr>
-            <th>Fichier</th>
+            <th>N° Dossier</th>
             <th>Date</th>
             <th>Statut</th>
             <th>Lignes chargées</th>
@@ -25,8 +25,8 @@
     <tbody>
         {% for entry in entries %}
         <tr>
-            <td class="flow-name">{{ entry.nom_fichier }}</td>
-            <td>{{ entry.date_traitement.strftime("%d/%m/%Y %H:%M:%S") }}</td>
+            <td class="flow-name">{{ entry.numero_dossier }}</td>
+            <td>{{ entry.date_execution.strftime("%d/%m/%Y %H:%M:%S") if entry.date_execution else "—" }}</td>
             <td>
                 {% if entry.statut == "OK" %}
                     <span class="badge ok">OK</span>
@@ -35,8 +35,8 @@
                 {% endif %}
             </td>
             <td>{{ entry.lignes_chargees if entry.lignes_chargees is not none else "—" }}</td>
-            <td>{{ entry.duree_secondes ~ " s" if entry.duree_secondes is not none else "—" }}</td>
-            <td class="flow-sub">{{ entry.message_erreur or "—" }}</td>
+            <td>{{ entry.duree ~ " s" if entry.duree is not none else "—" }}</td>
+            <td class="flow-sub">{{ entry.erreur or "—" }}</td>
         </tr>
         {% else %}
         <tr>

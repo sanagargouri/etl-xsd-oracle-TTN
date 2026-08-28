@@ -35,42 +35,284 @@
                 </b>
             </div>
         </div>
-
-        <form action="/scheduler/dates" method="post" style="flex:1; min-width:280px; margin:0; border-left:1px solid #e8d5d2; padding-left:28px;">
-            <div style="margin-bottom:8px;">
-                <p style="font-family:Arial,sans-serif; font-size:11px; font-weight:bold; margin:0 0 4px 0; color:#8b2e2e;">
-                    Période TITRE (TCEAP)
-                </p>
-                <div class="cur-time">
-                    <input type="date" name="date_debut_TITRE"
-                           value="{{ status.dates_par_type.TITRE[0] if status.dates_par_type.TITRE else '' }}"
-                           class="clock-input" style="width:auto; font-size:11px; padding:3px 5px; color:#2c2c2c;">
-                    <span class="unit-label" style="color:#8b2e2e;">→</span>
-                    <input type="date" name="date_fin_TITRE"
-                           value="{{ status.dates_par_type.TITRE[1] if status.dates_par_type.TITRE else '' }}"
-                           class="clock-input" style="width:auto; font-size:11px; padding:3px 5px; color:#2c2c2c;">
-                </div>
-            </div>
-
-            <div style="margin-bottom:8px;">
-                <p style="font-family:Arial,sans-serif; font-size:11px; font-weight:bold; margin:0 0 4px 0; color:#8b2e2e;">
-                    Période TCE
-                </p>
-                <div class="cur-time">
-                    <input type="date" name="date_debut_TCE"
-                           value="{{ status.dates_par_type.TCE[0] if status.dates_par_type.TCE else '' }}"
-                           class="clock-input" style="width:auto; font-size:11px; padding:3px 5px; color:#2c2c2c;">
-                    <span class="unit-label" style="color:#8b2e2e;">→</span>
-                    <input type="date" name="date_fin_TCE"
-                           value="{{ status.dates_par_type.TCE[1] if status.dates_par_type.TCE else '' }}"
-                           class="clock-input" style="width:auto; font-size:11px; padding:3px 5px; color:#2c2c2c;">
-                </div>
-            </div>
-
-            <button type="submit" class="clock-submit" style="padding:5px 12px; font-size:11px; background:#8b2e2e; border-color:#8b2e2e; color:#fff;">Enregistrer les périodes</button>
-        </form>
     </div>
 </div>
+
+<style>
+.stc-label {
+    display:block;
+    font-family:Arial,sans-serif;
+    font-size:10.5px;
+    font-weight:bold;
+    color:#8b2e2e;
+    margin-bottom:4px;
+}
+.stc-input {
+    background:#fff;
+    border:1px solid #cbb4b0;
+    border-radius:4px;
+    padding:6px 8px;
+    font-size:12.5px;
+    color:#2c2c2c;
+    font-family:Arial,sans-serif;
+}
+.stc-input:focus {
+    outline:none;
+    border-color:#8b2e2e;
+}
+.stc-date {
+    background:#fff;
+    border:1px solid #cbb4b0;
+    border-radius:4px;
+    padding:6px 8px;
+    font-size:12.5px;
+    color:#2c2c2c;
+    font-family:Arial,sans-serif;
+    width:150px;
+    box-sizing:border-box;
+}
+.stc-pill {
+    display:flex;
+    align-items:center;
+    gap:4px;
+    background:#fff;
+    border:1px solid #cbb4b0;
+    border-radius:4px;
+    padding:4px 4px 4px 8px;
+}
+.stc-pill select {
+    border:none;
+    outline:none;
+    font-size:12.5px;
+    color:#2c2c2c;
+    font-family:Arial,sans-serif;
+    background:transparent;
+}
+.stc-pill-remove {
+    background:none;
+    border:none;
+    color:#8b2e2e;
+    font-weight:bold;
+    cursor:pointer;
+    font-size:13px;
+    padding:0 4px;
+}
+</style>
+
+<h2 class="section">Correspondances schéma ↔ LIASSE.DOSSIER</h2>
+
+{% for root_name, cfg in schema_types.items() %}
+<div class="clock-card" style="width:100%; box-sizing:border-box; padding:16px 20px; background:#fdfaf9; border:1px solid #e8d5d2; margin-bottom:16px;">
+    <form action="/schema-types" method="post" class="schema-type-form" style="margin:0;">
+        <input type="hidden" name="root_name" value="{{ root_name }}">
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Correspondance schéma ↔ CODE_TYPE_DOSSIER
+        </p>
+        <div style="display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap;">
+            <div>
+                <label class="stc-label">Schéma</label>
+                <input type="text" value="{{ root_name }}" disabled
+                       class="stc-input" style="width:150px; background:#f2ecea;">
+            </div>
+            <div>
+                <label class="stc-label">CODE_TYPE_DOSSIER</label>
+                <select name="code_type_dossier" required class="stc-input" style="width:150px;">
+                    <option value="" disabled {{ "selected" if not cfg.code_type_dossier else "" }}>-- choisir --</option>
+                    {% for code in code_types_dossier %}
+                    <option value="{{ code }}" {{ "selected" if cfg.code_type_dossier == code else "" }}>{{ code }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="stc-label">Colonne NUMERO_DEMANDE</label>
+                <input type="text" name="colonne_numero_demande" value="{{ cfg.colonne_numero_demande }}" required
+                       class="stc-input" style="width:220px; font-family:'JetBrains Mono', monospace; font-size:11px;">
+            </div>
+        </div>
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Activité
+        </p>
+        <div class="activite-list" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+            {% for val in cfg.activites %}
+            <div class="stc-pill">
+                <select class="activite-input">
+                    {% for a in activites_dossier %}
+                    <option value="{{ a }}" {{ "selected" if a == val else "" }}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="stc-pill-remove remove-activite-btn">×</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="stampbtn outline add-activite-btn" style="font-size:11px; padding:4px 12px; margin-bottom:20px;">
+            + Ajouter une valeur
+        </button>
+        <input type="hidden" name="activite" class="activite-hidden" value="{{ cfg.activite_raw }}">
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Période
+        </p>
+        <div style="display:flex; gap:16px; align-items:flex-end; margin-bottom:16px; flex-wrap:wrap;">
+            <div>
+                <label class="stc-label">Date début</label>
+                <input type="date" name="date_debut" value="{{ cfg.date_debut.strftime('%Y-%m-%d') if cfg.date_debut else '' }}"
+                       class="stc-date">
+            </div>
+            <div>
+                <label class="stc-label">Date fin</label>
+                <input type="date" name="date_fin" value="{{ cfg.date_fin.strftime('%Y-%m-%d') if cfg.date_fin else '' }}"
+                       class="stc-date">
+            </div>
+        </div>
+
+        <button type="submit" class="clock-submit" style="padding:6px 16px; font-size:12px; background:#8b2e2e; border-color:#8b2e2e; color:#fff;">
+            Enregistrer
+        </button>
+    </form>
+
+    <p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin:10px 0 0 0;">
+        Dernier batch :
+        {% if cfg.derniere_synchro %}
+            <b style="color:#2c2c2c;">{{ cfg.derniere_synchro.strftime('%d/%m/%Y à %H:%M:%S') }}</b>
+        {% else %}
+            <b style="color:var(--gray-600);">jamais exécuté</b>
+        {% endif %}
+    </p>
+
+    <form action="/schema-types/supprimer" method="post" style="margin-top:10px;">
+        <input type="hidden" name="root_name" value="{{ root_name }}">
+        <button type="submit" class="stampbtn outline" style="font-size:11px; padding:4px 12px; color:#8b2e2e; border-color:#8b2e2e;">
+            Supprimer cette correspondance
+        </button>
+    </form>
+</div>
+{% else %}
+<p style="font-family:Arial,sans-serif; font-size:12.5px; color:var(--gray-600); margin-bottom:16px;">
+    Aucune correspondance configurée pour l'instant.
+</p>
+{% endfor %}
+
+<div class="clock-card" style="width:100%; box-sizing:border-box; padding:16px 20px; background:#fdfaf9; border:1px dashed #e8d5d2; margin-bottom:24px;">
+    <p style="font-family:Arial,sans-serif; font-size:13px; font-weight:bold; margin:0 0 14px 0; color:#8b2e2e;">
+        Ajouter une nouvelle correspondance
+    </p>
+    <form action="/schema-types" method="post" class="schema-type-form" style="margin:0;">
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Correspondance schéma ↔ CODE_TYPE_DOSSIER
+        </p>
+        <div style="display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap;">
+            <div>
+                <label class="stc-label">Schéma</label>
+                <select name="root_name" required class="stc-input" style="width:220px;">
+                    <option value="" disabled selected>-- choisir --</option>
+                    {% for h in xsd_historique %}
+                    <option value="{{ h.root_name }}">{{ h.root_name }} ({{ h.xsd_filename }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="stc-label">CODE_TYPE_DOSSIER</label>
+                <select name="code_type_dossier" required class="stc-input" style="width:150px;">
+                    <option value="" disabled selected>-- choisir --</option>
+                    {% for code in code_types_dossier %}
+                    <option value="{{ code }}">{{ code }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="stc-label">Colonne NUMERO_DEMANDE</label>
+                <input type="text" name="colonne_numero_demande" required
+                       class="stc-input" style="width:220px; font-family:'JetBrains Mono', monospace; font-size:11px;">
+            </div>
+        </div>
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Activité
+        </p>
+        <div class="activite-list" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;"></div>
+        <button type="button" class="stampbtn outline add-activite-btn" style="font-size:11px; padding:4px 12px; margin-bottom:20px;">
+            + Ajouter une valeur
+        </button>
+        <input type="hidden" name="activite" class="activite-hidden" value="">
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Période
+        </p>
+        <div style="display:flex; gap:16px; align-items:flex-end; margin-bottom:16px; flex-wrap:wrap;">
+            <div>
+                <label class="stc-label">Date début</label>
+                <input type="date" name="date_debut" class="stc-date">
+            </div>
+            <div>
+                <label class="stc-label">Date fin</label>
+                <input type="date" name="date_fin" class="stc-date">
+            </div>
+        </div>
+
+        <button type="submit" class="clock-submit" style="padding:6px 16px; font-size:12px; background:#8b2e2e; border-color:#8b2e2e; color:#fff;">
+            Ajouter ce schéma
+        </button>
+    </form>
+</div>
+
+<script>
+const ACTIVITES_DISPONIBLES = {{ activites_dossier | tojson }};
+
+function attachActiviteHandlers(form) {
+    const list = form.querySelector(".activite-list");
+    const hidden = form.querySelector(".activite-hidden");
+    const addBtn = form.querySelector(".add-activite-btn");
+
+    function addPill(value) {
+        const pill = document.createElement("div");
+        pill.className = "stc-pill";
+
+        const select = document.createElement("select");
+        select.className = "activite-input";
+        ACTIVITES_DISPONIBLES.forEach(function (a) {
+            const opt = document.createElement("option");
+            opt.value = a;
+            opt.textContent = a;
+            if (a === value) opt.selected = true;
+            select.appendChild(opt);
+        });
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "stc-pill-remove remove-activite-btn";
+        removeBtn.textContent = "×";
+        removeBtn.addEventListener("click", function () {
+            pill.remove();
+        });
+
+        pill.appendChild(select);
+        pill.appendChild(removeBtn);
+        list.appendChild(pill);
+    }
+
+    addBtn.addEventListener("click", function () {
+        addPill(ACTIVITES_DISPONIBLES[0] || "");
+    });
+
+    list.querySelectorAll(".remove-activite-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            btn.closest(".stc-pill").remove();
+        });
+    });
+
+    form.addEventListener("submit", function () {
+        const values = Array.from(list.querySelectorAll(".activite-input"))
+            .map(function (select) { return select.value.trim(); })
+            .filter(function (v) { return v.length > 0; });
+        hidden.value = values.join(",");
+    });
+}
+
+document.querySelectorAll(".schema-type-form").forEach(attachActiviteHandlers);
+</script>
 
 <div class="row" style="display:flex; gap:24px; align-items:flex-start;">
     <div style="flex:1.3; display:flex; flex-direction:column; gap:24px;">

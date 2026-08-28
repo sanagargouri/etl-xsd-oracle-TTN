@@ -7,9 +7,7 @@
 
 <p style="font-family:Arial,sans-serif; font-size:12.5px; color:var(--gray-600); margin-bottom:20px;">
     Liste des schémas créés via le
-    <a href="{{ url_for('ddl.index') }}">Générateur DDL</a>. Renommer un
-    schéma renomme sa table racine ET toutes ses tables filles (leur nom
-    est construit à partir du préfixe de la racine). Pour créer un
+    <a href="{{ url_for('ddl.index') }}">Générateur DDL</a>. Pour créer un
     nouveau schéma ou recréer des tables manquantes, utilise le
     Générateur DDL.
 </p>
@@ -34,7 +32,6 @@
             <th>Tables</th>
             <th>Statut</th>
             <th>Créé le</th>
-            <th>Action</th>
         </tr>
     </thead>
     <tbody>
@@ -60,32 +57,10 @@
             <td style="font-size:11px; color:var(--gray-600);">
                 {{ s.date_creation.strftime('%d/%m/%Y %H:%M') }}
             </td>
-            <td>
-                {% if s.missing_tables %}
-                <span style="color:var(--gray-600); font-size:11px;">
-                    Recrée via le Générateur DDL avant de renommer
-                </span>
-                {% else %}
-                <form action="/schemas" method="post" style="display:flex; gap:6px; margin:0;">
-                    <input type="hidden" name="id_historique" value="{{ s.id_historique }}">
-                    <input
-                        type="text"
-                        name="custom_name"
-                        placeholder="Nouveau nom de table racine"
-                        required
-                        maxlength="30"
-                        style="font-family:Arial,sans-serif; font-size:12px; padding:4px 8px; border:1px solid var(--gray-400); border-radius:3px;"
-                    >
-                    <button type="submit" class="stampbtn" style="white-space:nowrap;">
-                        Renommer
-                    </button>
-                </form>
-                {% endif %}
-            </td>
         </tr>
         {% else %}
         <tr>
-            <td colspan="6" style="color:var(--gray-600);">
+            <td colspan="5" style="color:var(--gray-600);">
                 Aucun schéma créé pour l'instant -- utilise le
                 <a href="{{ url_for('ddl.index') }}">Générateur DDL</a>.
             </td>

@@ -48,6 +48,10 @@ def dashboard():
         recent_logs=recent_logs,
         lot_files=lot_files,
         schema_summary=schema_summary,
+        schema_types=ddl_oracle.get_schema_types(),
+        xsd_historique=ddl_oracle.list_historique(),
+        code_types_dossier=ddl_oracle.get_distinct_code_types_dossier(),
+        activites_dossier=ddl_oracle.get_distinct_activites_dossier(),
     )
 
 
@@ -229,11 +233,17 @@ def inserer_donnees():
 
 @main_bp.route("/historique")
 def historique():
+    """
+    Affiche desormais TRACE_EXECUTION (synchro LIASSE.DOSSIER par dossier)
+    au lieu de ETL_LOG. ETL_LOG n'est pas supprimee, elle reste alimentee
+    normalement (dashboard, journal des depots XML) -- seule cette page
+    change de source.
+    """
     statut_filtre = request.args.get("statut")
     if statut_filtre not in (None, "OK", "ERREUR"):
         statut_filtre = None
 
-    entries = stats.get_log_entries(statut=statut_filtre)
+    entries = stats.get_trace_execution_entries(statut=statut_filtre)
     return render_template(
         "historique.html", entries=entries, statut_filtre=statut_filtre
     )
@@ -306,43 +316,49 @@ def tables_oracle_export():
     )
 
 
-@main_bp.route("/schemas", methods=["GET", "POST"])
+@main_bp.route("/schemas")
 def schemas():
     """
-    Page "Gérer les schémas" : liste les schémas créés via le Générateur
-    DDL et permet de renommer la table racine d'un schéma déjà créé
-    (renommage en cascade sur toutes ses tables filles).
+    Page "Gérer les schémas" : liste, en lecture seule, les schémas créés
+    via le Générateur DDL. Le renommage a été retiré (demande tutrice) --
+    pour créer un schéma ou recréer des tables manquantes, l'utilisateur
+    passe par le Générateur DDL.
     """
-    message = None
-    error = None
-
-    if request.method == "POST":
-        id_historique = request.form.get("id_historique")
-        new_name = (request.form.get("custom_name") or "").strip()
-        try:
-            schema_manager.rename_schema_root(int(id_historique), new_name)
-            message = f"Schéma renommé en {new_name.upper()}"
-        except Exception as e:
-            error = str(e)
-
     schemas_list = schema_manager.list_schemas()
     return render_template(
         "schemas.html",
         schemas_list=schemas_list,
-        message=message,
-        error=error,
     )
 
-@main_bp.route("/scheduler/dates", methods=["POST"])
-def modifier_dates_schema():
-    scheduler = current_app.config["SCHEDULER"]
 
-    dates_par_type = {}
-    for root_name in ("TITRE", "TCE"):
-        debut = request.form.get(f"date_debut_{root_name}")
-        fin = request.form.get(f"date_fin_{root_name}")
-        if debut and fin:
-            dates_par_type[root_name] = (debut, fin)
+@main_bp.route("/schema-types", methods=["POST"])
+def modifier_schema_type():
+    """
+    Cree ou met a jour une correspondance schema <-> CODE_TYPE_DOSSIER /
+    ACTIVITE / periode de dates, depuis le formulaire integre dans la
+    carte "Batch loading" du dashboard. Pas de limite au nombre de
+    correspondances -- remplace l'ancien dict SCHEMA_TYPES code en dur.
+    """
+    root_name = (request.form.get("root_name") or "").strip()
+    code_type_dossier = (request.form.get("code_type_dossier") or "").strip()
+    colonne_numero_demande = (request.form.get("colonne_numero_demande") or "").strip()
+    activite_raw = (request.form.get("activite") or "").strip()
+    date_debut = request.form.get("date_debut")
+    date_fin = request.form.get("date_fin")
 
-    scheduler.change_dates(dates_par_type)
+    if root_name and code_type_dossier and colonne_numero_demande:
+        ddl_oracle.update_schema_type(
+            root_name, code_type_dossier, colonne_numero_demande,
+            activite_raw, date_debut, date_fin
+        )
+
+    return redirect(url_for("main.dashboard"))
+
+
+@main_bp.route("/schema-types/supprimer", methods=["POST"])
+def supprimer_schema_type():
+    """Supprime une correspondance schema <-> CODE_TYPE_DOSSIER."""
+    root_name = request.form.get("root_name")
+    if root_name:
+        ddl_oracle.delete_schema_type(root_name)
     return redirect(url_for("main.dashboard"))

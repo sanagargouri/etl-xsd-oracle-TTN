@@ -16,6 +16,7 @@ Deux responsabilites :
 
 import os
 import re
+import time
 
 import config
 from src.data_loader import DataLoader
@@ -70,7 +71,7 @@ def connect():
 
 
 def ensure_meta_tables(loader):
-    """Cree les 2 tables techniques d'historique si elles n'existent pas encore."""
+    """Cree les tables techniques d'historique/config si elles n'existent pas encore."""
     loader.cursor.execute(
         "SELECT COUNT(*) FROM user_tables WHERE table_name = 'DDL_XSD_HISTORIQUE'"
     )
@@ -118,6 +119,28 @@ def ensure_meta_tables(loader):
                 date_depot TIMESTAMP DEFAULT SYSTIMESTAMP,
                 CONSTRAINT FK_DDL_PENDING_HIST FOREIGN KEY (id_historique)
                     REFERENCES DDL_XSD_HISTORIQUE(id_historique)
+            )
+        """)
+
+    # Correspondance root_name (table racine d'un schema XSD) <->
+    # CODE_TYPE_DOSSIER / ACTIVITE / periode de dates dans LIASSE.DOSSIER,
+    # configurable librement depuis le dashboard -- aucune limite au
+    # nombre de schemas, remplace l'ancien dict SCHEMA_TYPES code en dur.
+    # derniere_synchro : horodatage du dernier MERGE reussi pour ce schema
+    # (affiche sous chaque carte du dashboard).
+    loader.cursor.execute(
+        "SELECT COUNT(*) FROM user_tables WHERE table_name = 'SCHEMA_TYPE_CONFIG'"
+    )
+    if loader.cursor.fetchone()[0] == 0:
+        loader.cursor.execute("""
+            CREATE TABLE SCHEMA_TYPE_CONFIG (
+                root_name              VARCHAR2(255) PRIMARY KEY,
+                code_type_dossier      VARCHAR2(50) NOT NULL,
+                colonne_numero_demande VARCHAR2(128) NOT NULL,
+                activite                VARCHAR2(100),
+                date_debut              DATE,
+                date_fin                 DATE,
+                derniere_synchro        TIMESTAMP
             )
         """)
 
@@ -379,13 +402,138 @@ def insert_xml_into_tables(id_historique, xml_path):
 
 
 # ---------------------------------------------------------------
-# Synchronisation TITRE / TCE avec LIASSE.DOSSIER (demande tutrice)
+# Synchronisation des schemas avec LIASSE.DOSSIER (demande tutrice)
 # ---------------------------------------------------------------
 
-SCHEMA_TYPES = {
-    "TITRE": {"code_type_dossier": "TCEAP", "colonne_numero_demande": "NUMERO_DEMANDE"},
-    "TCE":   {"code_type_dossier": "TCE",   "colonne_numero_demande": "REFERENCE_TTN_NUMERO_DEMANDE"},
-}
+def get_distinct_code_types_dossier():
+    """
+    Valeurs distinctes de CODE_TYPE_DOSSIER dans LIASSE.DOSSIER, pour
+    peupler la liste deroulante du formulaire de correspondance --
+    l'utilisateur choisit parmi les vraies valeurs presentes en base,
+    plus de saisie libre sujette a erreur de frappe.
+    """
+    loader = connect()
+    try:
+        loader.cursor.execute(
+            "SELECT DISTINCT CODE_TYPE_DOSSIER FROM LIASSE.DOSSIER "
+            "WHERE CODE_TYPE_DOSSIER IS NOT NULL ORDER BY CODE_TYPE_DOSSIER"
+        )
+        return [r[0] for r in loader.cursor.fetchall()]
+    finally:
+        loader.disconnect()
+
+
+def get_distinct_activites_dossier():
+    """
+    Valeurs distinctes de ACTIVITE dans LIASSE.DOSSIER, pour peupler la
+    liste deroulante des pastilles "Activite" du dashboard.
+    """
+    loader = connect()
+    try:
+        loader.cursor.execute(
+            "SELECT DISTINCT ACTIVITE FROM LIASSE.DOSSIER "
+            "WHERE ACTIVITE IS NOT NULL ORDER BY ACTIVITE"
+        )
+        return [r[0] for r in loader.cursor.fetchall()]
+    finally:
+        loader.disconnect()
+
+
+def get_schema_types():
+    """
+    Retourne toutes les correspondances configurees :
+    root_name -> {code_type_dossier, colonne_numero_demande,
+                  activites (liste), activite_raw (chaine brute),
+                  date_debut, date_fin, derniere_synchro}.
+    Lu depuis SCHEMA_TYPE_CONFIG, alimente librement depuis le dashboard --
+    aucune limite au nombre de schemas.
+    """
+    loader = connect()
+    try:
+        ensure_meta_tables(loader)
+        loader.cursor.execute("""
+            SELECT root_name, code_type_dossier, colonne_numero_demande,
+                   activite, date_debut, date_fin, derniere_synchro
+            FROM SCHEMA_TYPE_CONFIG
+            ORDER BY root_name
+        """)
+        result = {}
+        for r in loader.cursor.fetchall():
+            result[r[0]] = {
+                "code_type_dossier": r[1],
+                "colonne_numero_demande": r[2],
+                "activites": [a.strip() for a in r[3].split(",")] if r[3] else [],
+                "activite_raw": r[3] or "",
+                "date_debut": r[4],
+                "date_fin": r[5],
+                "derniere_synchro": r[6],
+            }
+        return result
+    finally:
+        loader.disconnect()
+
+
+def update_schema_type(root_name, code_type_dossier, colonne_numero_demande,
+                        activite_raw, date_debut, date_fin):
+    """
+    Cree ou met a jour une correspondance. activite_raw : chaine brute
+    telle que construite par le JS du formulaire, ex: "6.1,6.3" (plusieurs
+    valeurs possibles, separees par des virgules). date_debut/date_fin au
+    format 'YYYY-MM-DD' (venant d'un <input type="date">), ou None/'' pour
+    ne pas synchroniser ce schema pour l'instant.
+
+    Utilise des binds NOMMES (:root_name, :code_type_dossier, ...) plutot
+    que positionnels (:1, :2, ...) : chaque nom apparait plusieurs fois
+    dans le MERGE (USING, WHEN MATCHED, WHEN NOT MATCHED), et avec des
+    binds positionnels oracledb compte CHAQUE occurrence comme une valeur
+    distincte a fournir (d'ou l'erreur DPY-4009 "16 positional bind values
+    are required but 6 were provided"). Avec des binds nommes, oracledb
+    reutilise automatiquement la meme valeur pour chaque occurrence du
+    meme nom.
+    """
+    loader = connect()
+    try:
+        ensure_meta_tables(loader)
+        loader.cursor.execute(
+            """
+            MERGE INTO SCHEMA_TYPE_CONFIG t
+            USING (SELECT :root_name AS root_name FROM dual) d
+            ON (t.root_name = d.root_name)
+            WHEN MATCHED THEN UPDATE SET
+                code_type_dossier = :code_type_dossier,
+                colonne_numero_demande = :colonne_numero_demande,
+                activite = :activite_raw,
+                date_debut = CASE WHEN :date_debut IS NOT NULL THEN TO_DATE(:date_debut, 'YYYY-MM-DD') ELSE NULL END,
+                date_fin = CASE WHEN :date_fin IS NOT NULL THEN TO_DATE(:date_fin, 'YYYY-MM-DD') ELSE NULL END
+            WHEN NOT MATCHED THEN INSERT
+                (root_name, code_type_dossier, colonne_numero_demande, activite, date_debut, date_fin)
+            VALUES
+                (:root_name, :code_type_dossier, :colonne_numero_demande, :activite_raw,
+                 CASE WHEN :date_debut IS NOT NULL THEN TO_DATE(:date_debut, 'YYYY-MM-DD') ELSE NULL END,
+                 CASE WHEN :date_fin IS NOT NULL THEN TO_DATE(:date_fin, 'YYYY-MM-DD') ELSE NULL END)
+            """,
+            root_name=root_name,
+            code_type_dossier=code_type_dossier,
+            colonne_numero_demande=colonne_numero_demande,
+            activite_raw=activite_raw or None,
+            date_debut=date_debut or None,
+            date_fin=date_fin or None,
+        )
+        loader.connection.commit()
+    finally:
+        loader.disconnect()
+
+
+def delete_schema_type(root_name):
+    """Supprime une correspondance (n'affecte pas la table racine elle-meme)."""
+    loader = connect()
+    try:
+        loader.cursor.execute(
+            "DELETE FROM SCHEMA_TYPE_CONFIG WHERE root_name = :1", [root_name]
+        )
+        loader.connection.commit()
+    finally:
+        loader.disconnect()
 
 
 def get_queued_root_name(filename):
@@ -405,19 +553,27 @@ def get_queued_root_name(filename):
         loader.disconnect()
 
 
-def sync_dossiers_liasse_pour_type(root_name, date_debut, date_fin):
+def sync_dossiers_liasse_pour_type(root_name):
     """
-    MERGE table_racine (orcl_local) <- LIASSE.DOSSIER, pour un seul type
-    de schema (TITRE ou TCE), filtre par CODE_TYPE_DOSSIER/ACTIVITE/DATE_CREATION.
-    A executer avant le traitement des fichiers XML de ce type.
+    MERGE table_racine (orcl_local) <- LIASSE.DOSSIER, pour un seul schema,
+    en utilisant la configuration complete (CODE_TYPE_DOSSIER, ACTIVITE,
+    dates) stockee dans SCHEMA_TYPE_CONFIG pour ce root_name.
+    Ne fait rien si la config est absente, ou si les dates/activites ne
+    sont pas renseignees (schema pas encore configure pour la synchro).
 
-    date_debut/date_fin sont recus au format 'YYYY-MM-DD' (envoye par les
-    champs <input type="date"> HTML), d'ou le TO_DATE explicite avec ce
-    masque -- sans lui Oracle tente de convertir avec le format NLS par
-    defaut de la session, qui ne correspond pas forcement (ORA-01861).
+    TRACE_EXECUTION a NUMERO_DOSSIER en cle primaire (un seul etat par
+    dossier, pas un historique cumulatif) : on y fait donc un MERGE, pas
+    un INSERT, sinon un dossier deja journalise lors d'un run precedent
+    fait echouer le run suivant (ORA-00001, violation de contrainte
+    unique). Chaque nouveau passage met a jour la ligne existante du
+    dossier plutot que d'en creer une seconde.
+
+    Met a jour derniere_synchro sur ce root_name apres un MERGE reussi.
     """
-    cfg = SCHEMA_TYPES.get(root_name)
-    if cfg is None:
+    cfg = get_schema_types().get(root_name)
+    if cfg is None or not cfg["date_debut"] or not cfg["date_fin"]:
+        return
+    if not cfg["activites"]:
         return
 
     loader = connect()
@@ -428,26 +584,112 @@ def sync_dossiers_liasse_pour_type(root_name, date_debut, date_fin):
         if loader.cursor.fetchone()[0] == 0:
             return  # table pas encore creee via le generateur DDL
 
-        sql = f"""
-            MERGE INTO {root_name} t
-            USING (
-                SELECT NUMERO_DOSSIER, NUMERO_DEMANDE
-                FROM LIASSE.DOSSIER
-                WHERE CODE_TYPE_DOSSIER = :code_type
-                  AND ACTIVITE IN ('6.1','6.3')
-                  AND DATE_CREATION BETWEEN TO_DATE(:date_debut, 'YYYY-MM-DD') AND TO_DATE(:date_fin, 'YYYY-MM-DD')
-            ) d
-            ON (t.NUMERO_DOSSIER = d.NUMERO_DOSSIER)
-            WHEN MATCHED THEN
-                UPDATE SET t.{cfg['colonne_numero_demande']} = d.NUMERO_DEMANDE
-            WHEN NOT MATCHED THEN
-                INSERT (NUMERO_DOSSIER, {cfg['colonne_numero_demande']})
-                VALUES (d.NUMERO_DOSSIER, d.NUMERO_DEMANDE)
-        """
+        activite_binds = {f"activite{i}": val for i, val in enumerate(cfg["activites"])}
+        activite_placeholders = ", ".join(f":{k}" for k in activite_binds)
+
+        date_debut_str = cfg["date_debut"].strftime("%Y-%m-%d")
+        date_fin_str = cfg["date_fin"].strftime("%Y-%m-%d")
+
+        # Recupere d'abord la liste des dossiers concernes, pour pouvoir
+        # journaliser chacun individuellement dans TRACE_EXECUTION.
         loader.cursor.execute(
-            sql, code_type=cfg["code_type_dossier"],
-            date_debut=date_debut, date_fin=date_fin
+            f"""
+            SELECT NUMERO_DOSSIER, NUMERO_DEMANDE
+            FROM LIASSE.DOSSIER
+            WHERE CODE_TYPE_DOSSIER = :code_type
+              AND ACTIVITE IN ({activite_placeholders})
+              AND DATE_CREATION BETWEEN TO_DATE(:date_debut, 'YYYY-MM-DD') AND TO_DATE(:date_fin, 'YYYY-MM-DD')
+            """,
+            code_type=cfg["code_type_dossier"],
+            date_debut=date_debut_str, date_fin=date_fin_str,
+            **activite_binds,
         )
-        loader.connection.commit()
+        dossiers = loader.cursor.fetchall()  # [(numero_dossier, numero_demande), ...]
+
+        t_debut = time.time()
+        try:
+            sql = f"""
+                MERGE INTO {root_name} t
+                USING (
+                    SELECT NUMERO_DOSSIER, NUMERO_DEMANDE
+                    FROM LIASSE.DOSSIER
+                    WHERE CODE_TYPE_DOSSIER = :code_type
+                      AND ACTIVITE IN ({activite_placeholders})
+                      AND DATE_CREATION BETWEEN TO_DATE(:date_debut, 'YYYY-MM-DD') AND TO_DATE(:date_fin, 'YYYY-MM-DD')
+                ) d
+                ON (t.NUMERO_DOSSIER = d.NUMERO_DOSSIER)
+                WHEN MATCHED THEN
+                    UPDATE SET t.{cfg['colonne_numero_demande']} = d.NUMERO_DEMANDE
+                WHEN NOT MATCHED THEN
+                    INSERT (NUMERO_DOSSIER, {cfg['colonne_numero_demande']})
+                    VALUES (d.NUMERO_DOSSIER, d.NUMERO_DEMANDE)
+            """
+            binds = {
+                "code_type": cfg["code_type_dossier"],
+                "date_debut": date_debut_str,
+                "date_fin": date_fin_str,
+                **activite_binds,
+            }
+            loader.cursor.execute(sql, binds)
+            duree = round(time.time() - t_debut, 2)
+
+            for numero_dossier, _ in dossiers:
+                loader.cursor.execute(
+                    """
+                    MERGE INTO TRACE_EXECUTION t
+                    USING (SELECT :numero_dossier AS numero_dossier FROM dual) d
+                    ON (t.NUMERO_DOSSIER = d.numero_dossier)
+                    WHEN MATCHED THEN UPDATE SET
+                        DATE_EXECUTION = SYSTIMESTAMP,
+                        DUREE = :duree,
+                        LIGNES_CHARGEES = :lignes_chargees,
+                        STATUT = :statut,
+                        ERREUR = :erreur
+                    WHEN NOT MATCHED THEN INSERT
+                        (NUMERO_DOSSIER, DATE_EXECUTION, DUREE, LIGNES_CHARGEES, STATUT, ERREUR)
+                    VALUES
+                        (:numero_dossier, SYSTIMESTAMP, :duree, :lignes_chargees, :statut, :erreur)
+                    """,
+                    numero_dossier=numero_dossier,
+                    duree=duree,
+                    lignes_chargees=1,
+                    statut="OK",
+                    erreur=None,
+                )
+
+            loader.cursor.execute(
+                "UPDATE SCHEMA_TYPE_CONFIG SET derniere_synchro = SYSTIMESTAMP WHERE root_name = :1",
+                [root_name]
+            )
+            loader.connection.commit()
+
+        except Exception as exc:
+            loader.connection.rollback()
+            duree = round(time.time() - t_debut, 2)
+            for numero_dossier, _ in dossiers:
+                loader.cursor.execute(
+                    """
+                    MERGE INTO TRACE_EXECUTION t
+                    USING (SELECT :numero_dossier AS numero_dossier FROM dual) d
+                    ON (t.NUMERO_DOSSIER = d.numero_dossier)
+                    WHEN MATCHED THEN UPDATE SET
+                        DATE_EXECUTION = SYSTIMESTAMP,
+                        DUREE = :duree,
+                        LIGNES_CHARGEES = :lignes_chargees,
+                        STATUT = :statut,
+                        ERREUR = :erreur
+                    WHEN NOT MATCHED THEN INSERT
+                        (NUMERO_DOSSIER, DATE_EXECUTION, DUREE, LIGNES_CHARGEES, STATUT, ERREUR)
+                    VALUES
+                        (:numero_dossier, SYSTIMESTAMP, :duree, :lignes_chargees, :statut, :erreur)
+                    """,
+                    numero_dossier=numero_dossier,
+                    duree=duree,
+                    lignes_chargees=0,
+                    statut="ERREUR",
+                    erreur=str(exc)[:4000],
+                )
+            loader.connection.commit()
+            raise
     finally:
         loader.disconnect()

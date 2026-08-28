@@ -60,30 +60,23 @@ def _traiter_un_fichier(filename, xml_folder, loader, dossier_traites, dossier_e
     ddl_oracle.remove_queued_schema(filename)
 
 
-def process_batch(xml_folder, loader, dates_par_type=None,
-                   dossier_traites=None, dossier_erreurs=None):
+def process_batch(xml_folder, loader, dossier_traites=None, dossier_erreurs=None):
     """
-    Traite tous les fichiers .xml d'un dossier, groupes par type de schema
-    (TITRE/TCEAP et TCE en priorite, avec synchronisation LIASSE.DOSSIER
-    avant chacun, en utilisant une periode de dates propre a chaque type ;
-    les autres schemas ensuite, sans synchronisation).
+    Traite tous les fichiers .xml d'un dossier, groupes par type de schema.
+    Pour chaque schema configure dans SCHEMA_TYPE_CONFIG (via le dashboard),
+    synchronise LIASSE.DOSSIER avant de traiter ses fichiers -- la liste
+    des schemas n'est plus fixe (TITRE/TCE), elle vient entierement de la
+    configuration en base, alimentee librement depuis l'appli.
 
     xml_folder      : dossier contenant les fichiers XML a traiter
     loader          : instance de DataLoader deja connectee a Oracle
                        (utilisee uniquement pour journaliser dans ETL_LOG)
-    dates_par_type  : dict optionnel { "TITRE": (date_debut, date_fin),
-                                        "TCE": (date_debut, date_fin) }
-                       une periode differente possible pour chaque schema ;
-                       un type absent du dict (ou dict absent) = pas de
-                       synchronisation LIASSE pour ce type.
     dossier_traites : dossier ou deplacer les fichiers traites avec succes
     dossier_erreurs : dossier ou deplacer les fichiers en echec
 
     Retourne un resume : liste de resultats par fichier
     (nom, statut "OK"/"ERREUR", nombre de lignes chargees ou message d'erreur)
     """
-    dates_par_type = dates_par_type or {}
-
     parent = os.path.dirname(xml_folder.rstrip("\\/"))
     if dossier_traites is None:
         dossier_traites = os.path.join(parent, "traites")
@@ -103,14 +96,12 @@ def process_batch(xml_folder, loader, dates_par_type=None,
     results = []
     fichiers_geres = set()
 
-    for root_name in ddl_oracle.SCHEMA_TYPES:
+    schema_types = ddl_oracle.get_schema_types()
+
+    for root_name in schema_types:
         print(f"\n=== Traitement du type {root_name} ===")
 
-        periode = dates_par_type.get(root_name)
-        if periode:
-            date_debut, date_fin = periode
-            if date_debut and date_fin:
-                ddl_oracle.sync_dossiers_liasse_pour_type(root_name, date_debut, date_fin)
+        ddl_oracle.sync_dossiers_liasse_pour_type(root_name)
 
         fichiers_du_type = [
             f for f in all_xml_files

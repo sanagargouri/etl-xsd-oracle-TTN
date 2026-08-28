@@ -1,7 +1,8 @@
 """
 web/stats.py
 
-Requêtes de lecture sur ETL_LOG, pour le dashboard et /historique.
+Requêtes de lecture sur ETL_LOG (fichiers XML) et TRACE_EXECUTION
+(synchro LIASSE.DOSSIER par dossier), pour le dashboard et /historique.
 Chaque fonction ouvre sa propre connexion Oracle courte (via DataLoader),
 l'utilise, puis la ferme — indépendamment du job planifié.
 """
@@ -57,6 +58,49 @@ def get_log_entries(statut=None, limit=100):
 
         columns = ["nom_fichier", "date_traitement", "statut",
                    "lignes_chargees", "message_erreur", "duree_secondes"]
+        return [dict(zip(columns, row)) for row in loader.cursor.fetchall()]
+    finally:
+        loader.disconnect()
+
+
+def get_trace_execution_entries(statut=None, limit=100):
+    """
+    Retourne les entrées de TRACE_EXECUTION (synchro LIASSE.DOSSIER par
+    dossier, une ligne par NUMERO_DOSSIER traité), les plus récentes en
+    premier. Table distincte de ETL_LOG (qui reste dediee aux fichiers
+    XML) -- rien n'est supprime, /historique affiche desormais celle-ci.
+
+    statut : 'OK', 'ERREUR', ou None pour ne pas filtrer.
+    limit  : nombre maximum d'entrées retournées.
+    """
+    loader = _connect()
+    try:
+        if statut:
+            loader.cursor.execute(
+                """
+                SELECT NUMERO_DOSSIER, DATE_EXECUTION, DUREE,
+                       LIGNES_CHARGEES, STATUT, ERREUR
+                FROM TRACE_EXECUTION
+                WHERE STATUT = :1
+                ORDER BY DATE_EXECUTION DESC
+                FETCH FIRST :2 ROWS ONLY
+                """,
+                [statut, limit],
+            )
+        else:
+            loader.cursor.execute(
+                """
+                SELECT NUMERO_DOSSIER, DATE_EXECUTION, DUREE,
+                       LIGNES_CHARGEES, STATUT, ERREUR
+                FROM TRACE_EXECUTION
+                ORDER BY DATE_EXECUTION DESC
+                FETCH FIRST :1 ROWS ONLY
+                """,
+                [limit],
+            )
+
+        columns = ["numero_dossier", "date_execution", "duree",
+                   "lignes_chargees", "statut", "erreur"]
         return [dict(zip(columns, row)) for row in loader.cursor.fetchall()]
     finally:
         loader.disconnect()
