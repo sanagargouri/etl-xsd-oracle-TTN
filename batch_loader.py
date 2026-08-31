@@ -63,10 +63,18 @@ def _traiter_un_fichier(filename, xml_folder, loader, dossier_traites, dossier_e
 def process_batch(xml_folder, loader, dossier_traites=None, dossier_erreurs=None):
     """
     Traite tous les fichiers .xml d'un dossier, groupes par type de schema.
-    Pour chaque schema configure dans SCHEMA_TYPE_CONFIG (via le dashboard),
-    synchronise LIASSE.DOSSIER avant de traiter ses fichiers -- la liste
-    des schemas n'est plus fixe (TITRE/TCE), elle vient entierement de la
-    configuration en base, alimentee librement depuis l'appli.
+
+    Deux flux independants s'executent a chaque batch :
+      1. sync_liasse_to_stat_dossier() : compare LIASSE.DOSSIER a
+         STAT_DOSSIER (schema SANA, "photo" de l'etat lors du dernier
+         batch), MERGE pour que STAT_DOSSIER reflete a nouveau LIASSE, et
+         retourne la liste des NUMERO_DOSSIER nouveaux/modifies depuis le
+         dernier passage -- independant des schemas XSD configures,
+         execute une seule fois par batch.
+      2. Pour chaque schema configure dans SCHEMA_TYPE_CONFIG (via le
+         dashboard) : synchronise LIASSE.DOSSIER vers la table racine du
+         schema (ex: TITRE, TCE, DDL4) selon les filtres/mappings propres
+         a ce schema, puis traite ses fichiers XML en attente.
 
     xml_folder      : dossier contenant les fichiers XML a traiter
     loader          : instance de DataLoader deja connectee a Oracle
@@ -92,6 +100,17 @@ def process_batch(xml_folder, loader, dossier_traites=None, dossier_erreurs=None
     ])
 
     print(f"\n=== {len(all_xml_files)} fichier(s) XML à traiter dans {xml_folder} ===")
+
+    print("\n=== Synchronisation LIASSE.DOSSIER -> STAT_DOSSIER ===")
+    dossiers_changes = []
+    try:
+        dossiers_changes = ddl_oracle.sync_liasse_to_stat_dossier()
+        if dossiers_changes:
+            print(f"    {len(dossiers_changes)} dossier(s) nouveau(x)/modifie(s) : {dossiers_changes}")
+        else:
+            print("    Aucun changement detecte depuis le dernier batch.")
+    except Exception as exc:
+        print(f"    ERREUR lors de la synchro STAT_DOSSIER : {exc}")
 
     results = []
     fichiers_geres = set()

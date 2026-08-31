@@ -26,20 +26,44 @@ main_bp = Blueprint("main", __name__)
 def dashboard():
     scheduler = current_app.config["SCHEDULER"]
     status = scheduler.get_status()
-    dashboard_stats = stats.get_dashboard_stats()
-    recent_logs = stats.get_log_entries(limit=6)
 
-    # Fusion : fichiers en attente (a_traiter) + fichiers terminés depuis
-    # le démarrage de CE lancement de app.py (pas tout l'historique).
-    pending = stats.get_pending_files()
-    completed = stats.get_completed_since(current_app.config["APP_START_TIME"])
+    # Une seule connexion SANA et une seule connexion LIASSE pour toute
+    # la page, au lieu d'une connexion par fonction (cause principale de
+    # la lenteur au chargement du dashboard).
+    sana_loader = ddl_oracle.connect()
+    liasse_loader = ddl_oracle.connect_liasse()
+    try:
+        dashboard_stats = stats.get_dashboard_stats(loader=sana_loader)
+        recent_logs = stats.get_log_entries(limit=6, loader=sana_loader)
 
-    lot_files = (
-        [{"nom_fichier": f["nom_fichier"], "statut": "EN_ATTENTE"} for f in pending]
-        + [{"nom_fichier": f["nom_fichier"], "statut": "TERMINE"} for f in completed]
-    )
+        pending = stats.get_pending_files()
+        completed = stats.get_completed_since(
+            current_app.config["APP_START_TIME"], loader=sana_loader
+        )
 
-    schema_summary = schema_info.get_schema_summary()
+        lot_files = (
+            [{"nom_fichier": f["nom_fichier"], "statut": "EN_ATTENTE"} for f in pending]
+            + [{"nom_fichier": f["nom_fichier"], "statut": "TERMINE"} for f in completed]
+        )
+
+        schema_summary = schema_info.get_schema_summary(loader=sana_loader)
+        schema_types = ddl_oracle.get_schema_types(loader=sana_loader)
+        xsd_historique = ddl_oracle.list_historique(loader=sana_loader)
+
+        all_root_names = {h["root_name"] for h in xsd_historique}
+        root_table_columns = {
+            rn: ddl_oracle.get_root_table_columns(rn, loader=sana_loader) for rn in all_root_names
+        }
+        schema_column_mappings = {
+            rn: ddl_oracle.get_schema_column_mappings(rn, loader=sana_loader) for rn in schema_types
+        }
+
+        code_types_dossier = ddl_oracle.get_distinct_code_types_dossier(loader=liasse_loader)
+        activites_dossier = ddl_oracle.get_distinct_activites_dossier(loader=liasse_loader)
+        dossier_columns = ddl_oracle.get_dossier_columns(loader=liasse_loader)
+    finally:
+        sana_loader.disconnect()
+        liasse_loader.disconnect()
 
     return render_template(
         "dashboard.html",
@@ -48,10 +72,13 @@ def dashboard():
         recent_logs=recent_logs,
         lot_files=lot_files,
         schema_summary=schema_summary,
-        schema_types=ddl_oracle.get_schema_types(),
-        xsd_historique=ddl_oracle.list_historique(),
-        code_types_dossier=ddl_oracle.get_distinct_code_types_dossier(),
-        activites_dossier=ddl_oracle.get_distinct_activites_dossier(),
+        schema_types=schema_types,
+        xsd_historique=xsd_historique,
+        code_types_dossier=code_types_dossier,
+        activites_dossier=activites_dossier,
+        dossier_columns=dossier_columns,
+        root_table_columns=root_table_columns,
+        schema_column_mappings=schema_column_mappings,
     )
 
 
@@ -65,14 +92,12 @@ def traiter_maintenant():
 @main_bp.route("/scheduler/intervalle", methods=["POST"])
 def modifier_intervalle():
     scheduler = current_app.config["SCHEDULER"]
-
     try:
         heures = int(request.form.get("heures", 0))
         minutes = int(request.form.get("minutes", 0))
         scheduler.change_interval(hours=heures, minutes=minutes)
     except (ValueError, TypeError):
         pass
-
     return redirect(url_for("main.dashboard"))
 
 
@@ -80,24 +105,16 @@ def modifier_intervalle():
 def pause_reprise_scheduler():
     scheduler = current_app.config["SCHEDULER"]
     status = scheduler.get_status()
-
     if status["actif"]:
         scheduler.pause()
     else:
         scheduler.resume()
-
     return redirect(url_for("main.dashboard"))
 
 
 @main_bp.route("/retirer-du-lot", methods=["POST"])
 def retirer_du_lot():
-    """
-    Retire un fichier XML du dossier a_traiter avant qu'il ne soit pris
-    en compte par le prochain passage du scheduler. Le fichier est déplacé
-    vers un dossier 'retires' (pas supprimé définitivement).
-    """
     filename = request.form.get("filename")
-
     if not filename:
         return redirect(url_for("main.dashboard"))
 
@@ -126,8 +143,6 @@ def retirer_du_lot():
 
 @main_bp.route("/upload", methods=["GET", "POST"])
 def upload():
-    # Liste des XSD deja utilises dans le generateur DDL (pour la deuxieme
-    # section de cette page : inserer un XML dans des tables existantes).
     xsd_historique = ddl_oracle.list_historique()
 
     if request.method == "GET":
@@ -169,15 +184,6 @@ def upload():
 
 @main_bp.route("/upload/inserer-donnees", methods=["POST"])
 def inserer_donnees():
-    """
-    Flux de la page "Deposer un fichier" : l'utilisateur choisit un XSD
-    deja utilise dans le generateur DDL (liste deroulante alimentee par
-    DDL_XSD_HISTORIQUE), et depose un ou plusieurs XML. Les fichiers
-    rejoignent le dossier a_traiter comme avant (traites par le scheduler
-    / bouton "Traiter maintenant"), mais chacun est associe au schema
-    choisi ici -- plus de detection automatique du type de document,
-    c'est l'utilisateur qui decide au moment du depot.
-    """
     xsd_historique = ddl_oracle.list_historique()
 
     id_historique = request.form.get("id_historique")
@@ -233,12 +239,6 @@ def inserer_donnees():
 
 @main_bp.route("/historique")
 def historique():
-    """
-    Affiche desormais TRACE_EXECUTION (synchro LIASSE.DOSSIER par dossier)
-    au lieu de ETL_LOG. ETL_LOG n'est pas supprimee, elle reste alimentee
-    normalement (dashboard, journal des depots XML) -- seule cette page
-    change de source.
-    """
     statut_filtre = request.args.get("statut")
     if statut_filtre not in (None, "OK", "ERREUR"):
         statut_filtre = None
@@ -251,23 +251,40 @@ def historique():
 
 @main_bp.route("/tables-oracle")
 def tables_oracle():
-    schema_filter = request.args.get("schema") or None
-    schemas = table_browser.list_schemas()
-    tables = table_browser.list_tables(schema_key=schema_filter)
+    """
+    Une seule connexion SANA partagee pour toute la page (schemas, liste
+    des tables, page de la table selectionnee, commentaires) au lieu
+    d'une connexion par fonction -- meme optimisation que le dashboard.
 
+    Le DDL (DBMS_METADATA.GET_DDL) n'est calcule QUE si demande
+    explicitement (?show_ddl=1) -- cette fonction Oracle est lente
+    (4-7s observes en test) et n'est pas utile a chaque clic sur une
+    table, seulement quand l'utilisateur veut vraiment copier le
+    CREATE TABLE.
+    """
+    schema_filter = request.args.get("schema") or None
     selected_table = request.args.get("table")
+    show_ddl = request.args.get("show_ddl") == "1"
     try:
         page = int(request.args.get("page", 1))
     except (ValueError, TypeError):
         page = 1
 
-    table_data = None
-    table_ddl = None
-    table_comments = None
-    if selected_table:
-        table_data = table_browser.get_table_page(selected_table, page=page)
-        table_ddl = table_browser.get_table_ddl(selected_table)
-        table_comments = table_browser.get_table_comments(selected_table)
+    sana_loader = table_browser.connect()
+    try:
+        schemas = table_browser.list_schemas(loader=sana_loader)
+        tables = table_browser.list_tables(schema_key=schema_filter, loader=sana_loader)
+
+        table_data = None
+        table_ddl = None
+        table_comments = None
+        if selected_table:
+            table_data = table_browser.get_table_page(selected_table, page=page, loader=sana_loader)
+            table_comments = table_browser.get_table_comments(selected_table, loader=sana_loader)
+            if show_ddl:
+                table_ddl = table_browser.get_table_ddl(selected_table, loader=sana_loader)
+    finally:
+        sana_loader.disconnect()
 
     return render_template(
         "tables_oracle.html",
@@ -278,16 +295,12 @@ def tables_oracle():
         table_data=table_data,
         table_ddl=table_ddl,
         table_comments=table_comments,
+        show_ddl=show_ddl,
     )
 
 
 @main_bp.route("/tables-oracle/export")
 def tables_oracle_export():
-    """
-    Télécharge le contenu complet d'une table (pas juste la page affichée)
-    en CSV ou en instructions INSERT INTO, selon ?format=csv|sql.
-    Le nom de table est revalidé côté table_browser avant toute requête SQL.
-    """
     from flask import Response
 
     table_name = request.args.get("table")
@@ -318,12 +331,7 @@ def tables_oracle_export():
 
 @main_bp.route("/schemas")
 def schemas():
-    """
-    Page "Gérer les schémas" : liste, en lecture seule, les schémas créés
-    via le Générateur DDL. Le renommage a été retiré (demande tutrice) --
-    pour créer un schéma ou recréer des tables manquantes, l'utilisateur
-    passe par le Générateur DDL.
-    """
+    """Page "Gérer les schémas" : liste en lecture seule (renommage retiré)."""
     schemas_list = schema_manager.list_schemas()
     return render_template(
         "schemas.html",
@@ -335,29 +343,34 @@ def schemas():
 def modifier_schema_type():
     """
     Cree ou met a jour une correspondance schema <-> CODE_TYPE_DOSSIER /
-    ACTIVITE / periode de dates, depuis le formulaire integre dans la
-    carte "Batch loading" du dashboard. Pas de limite au nombre de
-    correspondances -- remplace l'ancien dict SCHEMA_TYPES code en dur.
+    ACTIVITE / periode de dates, ainsi que la liste de correspondances de
+    colonnes (source LIASSE.DOSSIER -> cible table racine).
     """
     root_name = (request.form.get("root_name") or "").strip()
     code_type_dossier = (request.form.get("code_type_dossier") or "").strip()
-    colonne_numero_demande = (request.form.get("colonne_numero_demande") or "").strip()
     activite_raw = (request.form.get("activite") or "").strip()
     date_debut = request.form.get("date_debut")
     date_fin = request.form.get("date_fin")
 
-    if root_name and code_type_dossier and colonne_numero_demande:
+    source_columns = request.form.getlist("source_column")
+    target_columns = request.form.getlist("target_column")
+    mappings = [
+        (s.strip(), t.strip())
+        for s, t in zip(source_columns, target_columns)
+        if s.strip() and t.strip()
+    ]
+
+    if root_name and code_type_dossier:
         ddl_oracle.update_schema_type(
-            root_name, code_type_dossier, colonne_numero_demande,
-            activite_raw, date_debut, date_fin
+            root_name, code_type_dossier, activite_raw, date_debut, date_fin
         )
+        ddl_oracle.save_schema_column_mappings(root_name, mappings)
 
     return redirect(url_for("main.dashboard"))
 
 
 @main_bp.route("/schema-types/supprimer", methods=["POST"])
 def supprimer_schema_type():
-    """Supprime une correspondance schema <-> CODE_TYPE_DOSSIER."""
     root_name = request.form.get("root_name")
     if root_name:
         ddl_oracle.delete_schema_type(root_name)

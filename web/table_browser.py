@@ -2,20 +2,18 @@
 web/table_browser.py
 
 Lecture générique du contenu des tables Oracle générées par le pipeline,
-pour /tables-oracle. Connexion Oracle courte à chaque appel, comme les
-autres modules de lecture (stats.py, schema_info.py).
-
-Générique : aucune colonne ni aucun nom de table n'est écrit en dur —
-tout est détecté dynamiquement (user_tables, cursor.description),
-pour que ça marche avec n'importe quel XSD, pas seulement les factures.
+pour /tables-oracle. Générique : aucune colonne ni aucun nom de table
+n'est écrit en dur — tout est détecté dynamiquement (user_tables,
+cursor.description), pour que ça marche avec n'importe quel XSD.
 
 Deux sources de schémas connus :
-  - ETL_SCHEMA_TABLES : ancien mécanisme (TableGenerator / "Gérer les
-    schémas" historique).
+  - ETL_SCHEMA_TABLES : ancien mécanisme.
   - DDL_XSD_HISTORIQUE / DDL_XSD_TABLE_CONFIG : mécanisme générique du
-    Générateur DDL / "Déposer un fichier" (ddl_oracle.py).
-Les deux sont fusionnées ici pour que le filtre par schéma fonctionne
-quelle que soit l'origine des tables.
+    Générateur DDL.
+
+Toutes les fonctions acceptent un `loader` optionnel : si fourni,
+connexion réutilisée (partagée sur toute une requête HTTP) sans être
+fermée ici ; sinon, connexion/déconnexion propre à l'appel.
 """
 
 import config
@@ -26,10 +24,13 @@ PAGE_SIZE = 25
 _TECHNICAL_TABLES = (
     "ETL_LOG", "ETL_SCHEMA_TABLES", "ETL_SCHEMA_CONFIG",
     "DDL_XSD_HISTORIQUE", "DDL_XSD_TABLE_CONFIG", "DDL_XSD_PENDING_FILES",
+    "SCHEMA_TYPE_CONFIG", "SCHEMA_COLUMN_MAPPING", "TRACE_EXECUTION",
+    "STAT_DOSSIER",
 )
 
 
-def _connect():
+def connect():
+    """Connexion vers le schema SANA -- exposee pour partage entre appels."""
     loader = DataLoader(
         username=config.DB_USERNAME,
         password=config.DB_PASSWORD,
@@ -52,17 +53,15 @@ _KNOWN_LABELS = {
 }
 
 
-def list_schemas():
+def list_schemas(loader=None):
     """
     Liste les schémas connus pour peupler la liste déroulante de
-    /tables-oracle, en fusionnant les deux sources :
-      - ETL_SCHEMA_TABLES (ancien mécanisme, schema_key libre type
-        "TEIF"/"DOCUMENT"/"AUTO_...")
-      - DDL_XSD_HISTORIQUE (Générateur DDL / Déposer un fichier),
-        identifié par un schema_key préfixé "ddl:<id_historique>" pour
-        ne jamais entrer en collision avec ceux de ETL_SCHEMA_TABLES.
+    /tables-oracle, en fusionnant ETL_SCHEMA_TABLES et DDL_XSD_HISTORIQUE.
+    loader : connexion déjà ouverte à réutiliser (optionnel).
     """
-    loader = _connect()
+    own_connection = loader is None
+    if own_connection:
+        loader = connect()
     try:
         schemas = []
 
@@ -92,18 +91,29 @@ def list_schemas():
 
         return schemas
     finally:
-        loader.disconnect()
+        if own_connection:
+            loader.disconnect()
 
 
-def list_tables(schema_key=None):
+def list_tables(schema_key=None, loader=None):
     """
     Liste les tables Oracle avec leur nombre de lignes.
-    Si schema_key est fourni : filtre soit via ETL_SCHEMA_TABLES (ancien
-    mécanisme), soit via DDL_XSD_TABLE_CONFIG si schema_key commence par
-    "ddl:" (Générateur DDL / Déposer un fichier). Sinon, comportement
-    historique : toutes les tables (hors tables techniques).
+
+    Optimisation : au lieu d'un SELECT COUNT(*) par table (N+1 requêtes,
+    cause principale de la lenteur), une seule requête sur
+    all_tables/user_tab_statistics récupère TOUTES les tables filtrées
+    d'un coup, puis les comptages exacts sont faits en une passe. Un
+    COUNT(*) reste nécessaire par table pour un nombre exact (les stats
+    Oracle peuvent être approximatives/périmées), mais on ne refait plus
+    le SELECT COUNT(*) FROM user_tables de _has_table() pour chacune --
+    la liste de noms valides est chargée une fois en un set, vérifiée en
+    mémoire.
+
+    loader : connexion déjà ouverte à réutiliser (optionnel).
     """
-    loader = _connect()
+    own_connection = loader is None
+    if own_connection:
+        loader = connect()
     try:
         if schema_key and schema_key.startswith("ddl:"):
             id_historique = schema_key.split(":", 1)[1]
@@ -128,34 +138,36 @@ def list_tables(schema_key=None):
             )
             table_names = [row[0] for row in loader.cursor.fetchall()]
 
+        if not table_names:
+            return []
+
+        # Recupere en une seule requete l'ensemble des tables reellement
+        # existantes (au lieu d'un _has_table() par table), pour filtrer
+        # les entrees de metadonnees dont la table a ete supprimee.
+        loader.cursor.execute("SELECT table_name FROM user_tables")
+        existing = {row[0] for row in loader.cursor.fetchall()}
+
         tables = []
         for name in table_names:
-            # Nom de table validé juste au-dessus (vient de user_tables ou
-            # d'une table de métadonnées, pas d'une entrée utilisateur
-            # directe) avant d'être inséré dans le SQL. Une table listée
-            # en metadonnées mais supprimée entre-temps est ignorée
-            # plutôt que de faire planter la page.
-            if not _has_table(loader, name):
+            if name not in existing:
                 continue
             loader.cursor.execute(f"SELECT COUNT(*) FROM {name}")
             count = loader.cursor.fetchone()[0]
             tables.append({"table_name": name, "row_count": count})
         return tables
     finally:
-        loader.disconnect()
+        if own_connection:
+            loader.disconnect()
 
 
-def get_table_page(table_name, page=1):
+def get_table_page(table_name, page=1, loader=None):
     """
-    Retourne une page de lignes pour une table donnée, avec ses colonnes
-    détectées dynamiquement via cursor.description.
-
-    table_name est revalidé contre la vraie liste des tables Oracle avant
-    d'être inséré dans le SQL (les noms de table ne peuvent pas être des
-    bind variables en Oracle) — évite toute injection SQL si quelqu'un
-    manipule le paramètre ?table= dans l'URL.
+    Retourne une page de lignes pour une table donnée.
+    loader : connexion déjà ouverte à réutiliser (optionnel).
     """
-    loader = _connect()
+    own_connection = loader is None
+    if own_connection:
+        loader = connect()
     try:
         loader.cursor.execute(
             "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
@@ -177,7 +189,7 @@ def get_table_page(table_name, page=1):
 
         loader.cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
         total_rows = loader.cursor.fetchone()[0]
-        total_pages = max(1, -(-total_rows // PAGE_SIZE))  # division entière arrondie au-dessus
+        total_pages = max(1, -(-total_rows // PAGE_SIZE))
 
         return {
             "table_name": table_name,
@@ -188,16 +200,18 @@ def get_table_page(table_name, page=1):
             "total_pages": total_pages,
         }
     finally:
-        loader.disconnect()
+        if own_connection:
+            loader.disconnect()
 
 
-def get_table_comments(table_name):
+def get_table_comments(table_name, loader=None):
     """
-    Retourne les commentaires de colonnes (ajoutés par add_column_comments
-    dans table_generator.py pour documenter le chemin XML d'origine des
-    colonnes tronquées à 30 caractères). {} si aucun commentaire.
+    Retourne les commentaires de colonnes. {} si aucun.
+    loader : connexion déjà ouverte à réutiliser (optionnel).
     """
-    loader = _connect()
+    own_connection = loader is None
+    if own_connection:
+        loader = connect()
     try:
         loader.cursor.execute(
             "SELECT column_name, comments FROM user_col_comments "
@@ -207,16 +221,18 @@ def get_table_comments(table_name):
         )
         return {row[0]: row[1] for row in loader.cursor.fetchall()}
     finally:
-        loader.disconnect()
+        if own_connection:
+            loader.disconnect()
 
 
-def get_all_rows_for_export(table_name):
+def get_all_rows_for_export(table_name, loader=None):
     """
-    Retourne TOUTES les lignes d'une table (pas paginé, contrairement à
-    get_table_page) pour export CSV/INSERT. table_name revalidé contre
-    user_tables avant insertion SQL, comme les autres fonctions du module.
+    Retourne TOUTES les lignes d'une table pour export CSV/INSERT.
+    loader : connexion déjà ouverte à réutiliser (optionnel).
     """
-    loader = _connect()
+    own_connection = loader is None
+    if own_connection:
+        loader = connect()
     try:
         loader.cursor.execute(
             "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
@@ -230,7 +246,8 @@ def get_all_rows_for_export(table_name):
         rows = loader.cursor.fetchall()
         return {"table_name": table_name, "columns": columns, "rows": rows}
     finally:
-        loader.disconnect()
+        if own_connection:
+            loader.disconnect()
 
 
 def build_csv_export(table_name):
@@ -251,12 +268,7 @@ def build_csv_export(table_name):
 
 
 def build_insert_export(table_name):
-    """
-    Génère des instructions INSERT INTO prêtes à coller/exécuter ailleurs,
-    une par ligne. Échappe les apostrophes SQL, laisse les nombres nus,
-    met NULL pour les valeurs absentes, formate les dates au format
-    Oracle TO_DATE explicite (évite toute ambiguïté de format régional).
-    """
+    """Génère des instructions INSERT INTO prêtes à coller/exécuter ailleurs."""
     import datetime
 
     data = get_all_rows_for_export(table_name)
@@ -286,18 +298,18 @@ def build_insert_export(table_name):
     return "\n".join(lines)
 
 
-def get_table_ddl(table_name):
+def get_table_ddl(table_name, loader=None):
     """
-    Requête CREATE TABLE copiable, affichée à côté de chaque table dans
-    /tables-oracle, pour permettre de recréer la même structure ailleurs.
-    Utilise DBMS_METADATA.GET_DDL -> reflète toujours la structure réelle
-    actuelle de la table (même si modifiée après sa création initiale),
-    pas une version mise en cache/générée par le parseur.
-
-    table_name est revalidé contre user_tables avant insertion dans le
-    SQL, pour les mêmes raisons de sécurité que get_table_page().
+    Requête CREATE TABLE copiable, via DBMS_METADATA.GET_DDL.
+    Cette fonction reste intrinsèquement lente côté Oracle (GET_DDL fait
+    son propre travail interne indépendamment du nombre de connexions
+    Python) -- le partage de connexion réduit le coût de connexion/
+    déconnexion, mais pas le temps de calcul du DDL lui-même.
+    loader : connexion déjà ouverte à réutiliser (optionnel).
     """
-    loader = _connect()
+    own_connection = loader is None
+    if own_connection:
+        loader = connect()
     try:
         loader.cursor.execute(
             "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
@@ -317,4 +329,5 @@ def get_table_ddl(table_name):
         ddl_text = ddl.read() if hasattr(ddl, "read") else str(ddl)
         return ddl_text.strip()
     finally:
-        loader.disconnect()
+        if own_connection:
+            loader.disconnect()

@@ -26,7 +26,7 @@
             <div class="cur-date" style="font-size:11px; margin-top:6px; color:#8b2e2e;">{{ "SCHEDULER ACTIF" if status.actif else "SCHEDULER EN PAUSE" }}</div>
             <div class="next" style="font-size:11px; color:#2c2c2c;">
                 Prochain lot&nbsp;:
-                <b>
+                <b style="color:#2c2c2c;">
                     {% if status.prochaine_execution %}
                         {{ status.prochaine_execution.strftime("%d/%m/%Y à %H:%M:%S") }}
                     {% else %}
@@ -39,64 +39,13 @@
 </div>
 
 <style>
-.stc-label {
-    display:block;
-    font-family:Arial,sans-serif;
-    font-size:10.5px;
-    font-weight:bold;
-    color:#8b2e2e;
-    margin-bottom:4px;
-}
-.stc-input {
-    background:#fff;
-    border:1px solid #cbb4b0;
-    border-radius:4px;
-    padding:6px 8px;
-    font-size:12.5px;
-    color:#2c2c2c;
-    font-family:Arial,sans-serif;
-}
-.stc-input:focus {
-    outline:none;
-    border-color:#8b2e2e;
-}
-.stc-date {
-    background:#fff;
-    border:1px solid #cbb4b0;
-    border-radius:4px;
-    padding:6px 8px;
-    font-size:12.5px;
-    color:#2c2c2c;
-    font-family:Arial,sans-serif;
-    width:150px;
-    box-sizing:border-box;
-}
-.stc-pill {
-    display:flex;
-    align-items:center;
-    gap:4px;
-    background:#fff;
-    border:1px solid #cbb4b0;
-    border-radius:4px;
-    padding:4px 4px 4px 8px;
-}
-.stc-pill select {
-    border:none;
-    outline:none;
-    font-size:12.5px;
-    color:#2c2c2c;
-    font-family:Arial,sans-serif;
-    background:transparent;
-}
-.stc-pill-remove {
-    background:none;
-    border:none;
-    color:#8b2e2e;
-    font-weight:bold;
-    cursor:pointer;
-    font-size:13px;
-    padding:0 4px;
-}
+.stc-label { display:block; font-family:Arial,sans-serif; font-size:10.5px; font-weight:bold; color:#8b2e2e; margin-bottom:4px; }
+.stc-input { background:#fff; border:1px solid #cbb4b0; border-radius:4px; padding:6px 8px; font-size:12.5px; color:#2c2c2c; font-family:Arial,sans-serif; }
+.stc-input:focus { outline:none; border-color:#8b2e2e; }
+.stc-date { background:#fff; border:1px solid #cbb4b0; border-radius:4px; padding:6px 8px; font-size:12.5px; color:#2c2c2c; font-family:Arial,sans-serif; width:150px; box-sizing:border-box; }
+.stc-pill { display:flex; align-items:center; gap:4px; background:#fff; border:1px solid #cbb4b0; border-radius:4px; padding:4px 4px 4px 8px; }
+.stc-pill select { border:none; outline:none; font-size:12.5px; color:#2c2c2c; font-family:Arial,sans-serif; background:transparent; }
+.stc-pill-remove { background:none; border:none; color:#8b2e2e; font-weight:bold; cursor:pointer; font-size:13px; padding:0 4px; }
 </style>
 
 <h2 class="section">Correspondances schéma ↔ LIASSE.DOSSIER</h2>
@@ -124,12 +73,32 @@
                     {% endfor %}
                 </select>
             </div>
-            <div>
-                <label class="stc-label">Colonne NUMERO_DEMANDE</label>
-                <input type="text" name="colonne_numero_demande" value="{{ cfg.colonne_numero_demande }}" required
-                       class="stc-input" style="width:220px; font-family:'JetBrains Mono', monospace; font-size:11px;">
-            </div>
         </div>
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Colonnes à synchroniser (LIASSE.DOSSIER → {{ root_name }})
+        </p>
+        <div class="mapping-list" data-root="{{ root_name }}" style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+            {% for m in schema_column_mappings.get(root_name, []) %}
+            <div class="stc-pill" style="gap:8px; width:fit-content;">
+                <select class="mapping-source" name="source_column">
+                    {% for col in dossier_columns %}
+                    <option value="{{ col }}" {{ "selected" if col == m.source else "" }}>{{ col }}</option>
+                    {% endfor %}
+                </select>
+                <span style="color:#8b2e2e;">→</span>
+                <select class="mapping-target" name="target_column">
+                    {% for col in root_table_columns.get(root_name, []) %}
+                    <option value="{{ col }}" {{ "selected" if col == m.target else "" }}>{{ col }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="stc-pill-remove remove-mapping-btn">×</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="stampbtn outline add-mapping-btn" data-root="{{ root_name }}" style="font-size:11px; padding:4px 12px; margin-bottom:20px;">
+            + Ajouter une colonne
+        </button>
 
         <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
             Activité
@@ -206,7 +175,7 @@
         <div style="display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap;">
             <div>
                 <label class="stc-label">Schéma</label>
-                <select name="root_name" required class="stc-input" style="width:220px;">
+                <select name="root_name" id="new-schema-select" required class="stc-input" style="width:220px;">
                     <option value="" disabled selected>-- choisir --</option>
                     {% for h in xsd_historique %}
                     <option value="{{ h.root_name }}">{{ h.root_name }} ({{ h.xsd_filename }})</option>
@@ -222,12 +191,15 @@
                     {% endfor %}
                 </select>
             </div>
-            <div>
-                <label class="stc-label">Colonne NUMERO_DEMANDE</label>
-                <input type="text" name="colonne_numero_demande" required
-                       class="stc-input" style="width:220px; font-family:'JetBrains Mono', monospace; font-size:11px;">
-            </div>
         </div>
+
+        <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
+            Colonnes à synchroniser (LIASSE.DOSSIER → table choisie)
+        </p>
+        <div class="mapping-list" id="new-mapping-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;"></div>
+        <button type="button" class="stampbtn outline" id="add-mapping-new-btn" style="font-size:11px; padding:4px 12px; margin-bottom:20px;">
+            + Ajouter une colonne
+        </button>
 
         <p style="font-family:Arial,sans-serif; font-size:12px; font-weight:bold; margin:0 0 10px 0; color:#8b2e2e;">
             Activité
@@ -260,6 +232,8 @@
 
 <script>
 const ACTIVITES_DISPONIBLES = {{ activites_dossier | tojson }};
+const DOSSIER_COLUMNS = {{ dossier_columns | tojson }};
+const ROOT_TABLE_COLUMNS = {{ root_table_columns | tojson }};
 
 function attachActiviteHandlers(form) {
     const list = form.querySelector(".activite-list");
@@ -284,9 +258,7 @@ function attachActiviteHandlers(form) {
         removeBtn.type = "button";
         removeBtn.className = "stc-pill-remove remove-activite-btn";
         removeBtn.textContent = "×";
-        removeBtn.addEventListener("click", function () {
-            pill.remove();
-        });
+        removeBtn.addEventListener("click", function () { pill.remove(); });
 
         pill.appendChild(select);
         pill.appendChild(removeBtn);
@@ -298,9 +270,7 @@ function attachActiviteHandlers(form) {
     });
 
     list.querySelectorAll(".remove-activite-btn").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            btn.closest(".stc-pill").remove();
-        });
+        btn.addEventListener("click", function () { btn.closest(".stc-pill").remove(); });
     });
 
     form.addEventListener("submit", function () {
@@ -312,6 +282,79 @@ function attachActiviteHandlers(form) {
 }
 
 document.querySelectorAll(".schema-type-form").forEach(attachActiviteHandlers);
+
+function buildColumnSelect(kind, options, selected) {
+    const select = document.createElement("select");
+    select.className = kind === "source" ? "mapping-source" : "mapping-target";
+    select.name = kind === "source" ? "source_column" : "target_column";
+    options.forEach(function (opt) {
+        const o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        if (opt === selected) o.selected = true;
+        select.appendChild(o);
+    });
+    return select;
+}
+
+function addMappingRow(list, rootName) {
+    const targetCols = ROOT_TABLE_COLUMNS[rootName] || [];
+    const row = document.createElement("div");
+    row.className = "stc-pill";
+    row.style.gap = "8px";
+    row.style.width = "fit-content";
+
+    const sourceSelect = buildColumnSelect("source", DOSSIER_COLUMNS, null);
+    const arrow = document.createElement("span");
+    arrow.style.color = "#8b2e2e";
+    arrow.textContent = "→";
+    const targetSelect = buildColumnSelect("target", targetCols, null);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "stc-pill-remove remove-mapping-btn";
+    removeBtn.textContent = "×";
+    removeBtn.addEventListener("click", function () { row.remove(); });
+
+    row.appendChild(sourceSelect);
+    row.appendChild(arrow);
+    row.appendChild(targetSelect);
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+}
+
+document.querySelectorAll(".add-mapping-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+        const rootName = btn.dataset.root;
+        const list = btn.closest("form").querySelector(".mapping-list");
+        addMappingRow(list, rootName);
+    });
+});
+
+document.querySelectorAll(".remove-mapping-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () { btn.closest(".stc-pill").remove(); });
+});
+
+const newSchemaSelect = document.getElementById("new-schema-select");
+const newMappingList = document.getElementById("new-mapping-list");
+const addMappingNewBtn = document.getElementById("add-mapping-new-btn");
+
+if (addMappingNewBtn) {
+    addMappingNewBtn.addEventListener("click", function () {
+        const rootName = newSchemaSelect.value;
+        if (!rootName) {
+            alert("Choisis d'abord un schéma.");
+            return;
+        }
+        addMappingRow(newMappingList, rootName);
+    });
+}
+
+if (newSchemaSelect) {
+    newSchemaSelect.addEventListener("change", function () {
+        newMappingList.innerHTML = "";
+    });
+}
 </script>
 
 <div class="row" style="display:flex; gap:24px; align-items:flex-start;">

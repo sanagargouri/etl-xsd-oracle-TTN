@@ -129,8 +129,8 @@
     {% if table_data %}
         <h2 class="section">{{ table_data.table_name }} — {{ table_data.total_rows }} ligne(s)</h2>
 
-        {% if table_ddl %}
         <div style="margin-bottom:20px;">
+            {% if table_ddl %}
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <span style="font-family:Arial,sans-serif; font-size:11px; font-weight:bold; color:var(--gray-700); text-transform:uppercase; letter-spacing:0.03em;">
                     Requête CREATE TABLE
@@ -138,18 +138,26 @@
                 <button type="button" class="retirer-btn" onclick="copyDdl(this)">Copier</button>
             </div>
             <pre id="ddl-block" style="background:#1e1e1e; color:#d4d4d4; padding:14px 16px; border-radius:4px; overflow-x:auto; font-family:'JetBrains Mono', monospace; font-size:12px; line-height:1.5; margin:0;">{{ table_ddl }}</pre>
+            <script>
+            function copyDdl(btn) {
+                const text = document.getElementById('ddl-block').innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    const original = btn.innerText;
+                    btn.innerText = "Copié !";
+                    setTimeout(() => { btn.innerText = original; }, 1500);
+                });
+            }
+            </script>
+            {% else %}
+            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page }}&show_ddl=1"
+               class="retirer-btn" style="text-decoration:none; display:inline-block;">
+                Afficher le CREATE TABLE
+            </a>
+            <p style="font-family:Arial,sans-serif; font-size:11px; color:var(--gray-600); margin-top:6px;">
+                Calcul du DDL un peu lent côté Oracle — chargé seulement sur demande.
+            </p>
+            {% endif %}
         </div>
-        <script>
-        function copyDdl(btn) {
-            const text = document.getElementById('ddl-block').innerText;
-            navigator.clipboard.writeText(text).then(() => {
-                const original = btn.innerText;
-                btn.innerText = "Copié !";
-                setTimeout(() => { btn.innerText = original; }, 1500);
-            });
-        }
-        </script>
-        {% endif %}
 
         {% if table_comments %}
         <div style="margin-bottom:20px;">
@@ -198,11 +206,11 @@
 
         <div style="display:flex; gap:10px; align-items:center; margin-top:16px; font-family:Arial,sans-serif; font-size:12px; color:var(--gray-600);">
             {% if table_data.page > 1 %}
-            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page - 1 }}" class="retirer-btn">← Précédent</a>
+            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page - 1 }}{{ '&show_ddl=1' if show_ddl else '' }}" class="retirer-btn">← Précédent</a>
             {% endif %}
             <span>Page {{ table_data.page }} / {{ table_data.total_pages }}</span>
             {% if table_data.page < table_data.total_pages %}
-            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page + 1 }}" class="retirer-btn">Suivant →</a>
+            <a href="/tables-oracle?table={{ selected_table }}&schema={{ schema_filter or '' }}&page={{ table_data.page + 1 }}{{ '&show_ddl=1' if show_ddl else '' }}" class="retirer-btn">Suivant →</a>
             {% endif %}
         </div>
     {% else %}
